@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Prints the value at a dotted key of the project's .korg.yml, or nothing when the key or the
+# file is absent. Exits 2 when neither python3 with PyYAML nor yq is installed.
+set -euo pipefail
+
+key=${1:?usage: korg-config <dotted.key>}
+root=${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}
+file="$root/.korg.yml"
+[ -f "$file" ] || exit 0
+
+if python3 -c 'import yaml' 2>/dev/null; then
+  python3 - "$file" "$key" <<'PY'
+import sys, yaml
+value = yaml.safe_load(open(sys.argv[1])) or {}
+for part in sys.argv[2].split("."):
+    value = value.get(part) if isinstance(value, dict) else None
+if value is not None:
+    print(value)
+PY
+elif command -v yq >/dev/null; then
+  yq -r ".${key} // \"\"" "$file"
+else
+  echo "korg-config: needs python3 with PyYAML, or yq" >&2
+  exit 2
+fi

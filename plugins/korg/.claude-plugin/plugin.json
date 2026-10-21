@@ -1,0 +1,5 @@
+{
+  "name": "korg",
+  "version": "0.0.1",
+  "description": "Agent harness: commit gates, PR review, ticket loop, report loops."
+}

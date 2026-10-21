@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# PostToolUse hook for Write|Edit: runs commands.format_file on the edited file. Never blocks the
+# edit, so every failure path exits 0.
+
+f=$(jq -r '.tool_input.file_path // .tool_response.filePath // empty')
+[ -n "$f" ] || exit 0
+cmd=$("$(dirname "$0")/korg-config" commands.format_file 2>/dev/null) || exit 0
+[ -n "$cmd" ] || exit 0
+
+cd "${CLAUDE_PROJECT_DIR:-.}" || exit 0
+bash -c "${cmd//\{file\}/$(printf '%q' "$f")}" 2>&1 || true

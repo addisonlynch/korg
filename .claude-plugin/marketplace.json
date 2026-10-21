@@ -1,0 +1,11 @@
+{
+  "name": "korg",
+  "owner": { "name": "addisonlynch" },
+  "plugins": [
+    {
+      "name": "korg",
+      "source": "./plugins/korg",
+      "description": "Agent harness: commit gates, PR review, ticket loop, report loops."
+    }
+  ]
+}
