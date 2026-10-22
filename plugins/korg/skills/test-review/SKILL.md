@@ -8,7 +8,7 @@ description: Author-side review of test quality on the current change. Deletes t
 Use before commit when the change adds or modifies tests. The goal is that tests exercise
 behavior, not that they pass.
 
-Values in `this.form` are keys of the project's `.korg.yml`; `korg-config <key>` prints
+Names like `commands.lint` are keys of the project's `.korg.yml`; `korg-config <key>` prints
 one.
 
 ## Contract
@@ -31,7 +31,7 @@ Only test files this change touched:
 ```
 
 Untracked files are included because a new test file is invisible to `git diff HEAD` until it
-is staged. Scope is `HEAD`, not `<default_branch>...HEAD`: on a branch's first commit the
+is staged. Scope is `HEAD`, not `<default branch>...HEAD`: on a branch's first commit the
 latter is empty and reviews nothing.
 
 If the list is empty, stop.
