@@ -33,7 +33,8 @@ commands:
   test: make test
   # Optional. Run one test id. `{test}` is the id, `{root}` the main checkout's root, so the
   # command can run inside a temporary worktree against dependencies installed in the checkout.
-  test_one: "{root}/.venv/bin/python -m pytest {test} -q"
+  # `{root}` is substituted as-is: quote it, since a checkout path may contain spaces.
+  test_one: '"{root}/.venv/bin/python" -m pytest {test} -q'
   # Optional. Lint-fix one file after every Write/Edit. `{file}` is the absolute path, shell-quoted.
   format_file: "ruff format {file}"
 
