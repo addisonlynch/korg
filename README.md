@@ -1,7 +1,7 @@
 # korg
 
-A Claude Code plugin for agent-driven development: quality gates on every commit and ticket
-planning in Linear, with more layers (PR review, an autonomous ticket loop) to follow.
+A Claude Code plugin for agent-driven development: quality gates on every commit, ticket
+planning in Linear, and PR review, with an autonomous ticket loop to follow.
 
 ## Install
 
@@ -62,6 +62,24 @@ planning:
   prd_dir: ~/vault/prds
   # Optional. A plan file whose `## Now` section groom-backlog checks the queue against.
   plan: ~/vault/plan.md
+
+# The PR layer (open-pr, pr-review). pr-review also requires linear.team, linear.workspace and
+# planning.label_taxonomy above, and reads rules.testing_signal when set.
+review:
+  # Required by pr-review. The stack-specific correctness checks; korg's own checklist holds
+  # only what every stack shares.
+  checklist: .korg/review-checklist.md
+  # Optional. Manual-testing steps by area, pasted into the PR description by open-pr.
+  manual_testing: .korg/manual-testing.md
+# Optional; absent = off. Change types whose PR must carry run output (a fenced command and its
+# output) under `## Evidence`. pr-review fails the agent-review check when one is missing. A
+# screenshot never counts: a fix round cannot capture one.
+evidence:
+  exempt: ["**/*.md", ".claude/**", ".github/**"]  # every changed file matches → exempt
+  types:
+    - name: Migration                               # the `### Migration` subsection
+      paths: ["db/migrations/**"]
+      need: post-migrate assertion output
 ```
 
 The planning skills talk to Linear the way the project's Linear rule in `.claude/rules/` says
@@ -77,6 +95,11 @@ The planning skills talk to Linear the way the project's Linear rule in `.claude
   the rest as their blockers land;
 - `gh`, for groom-backlog's re-queue check.
 
+The review layer runs in CI as reusable workflows: see [docs/callers.md](docs/callers.md) for
+the caller each project adds, its inputs and secrets, and the required-check names. The
+`needs-review` label requests a review, `no-auto-review` opts a PR out, and the bot publishes its
+verdict as the `agent-review` check.
+
 `/korg:to-prd` opens each PRD with `question` / `decision` / `verdict` / `consumed_by`
 frontmatter and fills `consumed_by` with the parent ticket.
 
@@ -91,6 +114,8 @@ frontmatter and fills `consumed_by` with the parent ticket.
 | `/korg:roadmap` | Capture an idea as a Linear issue, or `--auto` to scope and queue it for the agent runner |
 | `/korg:to-prd` | Write a PRD from the conversation, with its test seams, and a parent issue for it |
 | `/korg:to-tickets` | Break a PRD, parent issue or conversation into vertical-slice tickets with blocked-by links, after you approve the breakdown |
+| `/korg:open-pr` | `/korg:commit`, then open the PR with a structured description and request review |
+| `/korg:pr-review` | The review bot's instructions: correctness, fitness and altitude reviewers, one review, the `agent-review` check |
 | `/korg:groom-backlog` | Triage the backlog: stale, stuck, unready, mislabelled and duplicate tickets, and queue the ones whose blockers are done |
 
 Project rules in `.claude/rules/*.md` (with optional `paths:` frontmatter) and the root

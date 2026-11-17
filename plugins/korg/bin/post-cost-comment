@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Best-effort per-run cost / token / model PR comment for the agent CI jobs.
+#
+# Usage:   post-cost-comment PR_NUMBER PHASE MODEL [LOG_FILE]
+#            PHASE    = the ACTOR that ran, so two comments on one PR are never confusable:
+#                       implementer | reviewer | responder | "responder round N"
+#            MODEL    = the model alias the run used
+#            LOG_FILE = the action's `execution_file` output (the JSON run log). Falls back to
+#                       $RUNNER_TEMP/claude-execution-output.json when omitted.
+# Env:     GH_TOKEN, GITHUB_REPOSITORY   — required
+#
+# Callers invoke this with `continue-on-error: true`; it additionally never exits non-zero on a
+# missing/odd log so it can't turn a green run red. total_cost_usd is an API-equivalent estimate
+# (the subscription does not bill per token), so it is labelled as such, not shown as real spend.
+#
+# The log is a JSON array of stream events; the final type==result event carries the totals. The parse
+# is best-effort and simply no-ops if it comes up empty.
+set -uo pipefail
+
+PR="${1:-}"; PHASE="${2:-run}"; MODEL="${3:-unknown}"; LOG="${4:-}"
+if [ -z "$PR" ]; then echo "usage: post-cost-comment PR_NUMBER PHASE MODEL [LOG_FILE]"; exit 0; fi
+: "${GH_TOKEN:=}"; : "${GITHUB_REPOSITORY:=}"
+if [ -z "$GH_TOKEN" ] || [ -z "$GITHUB_REPOSITORY" ]; then
+  echo "GH_TOKEN / GITHUB_REPOSITORY unset; skipping cost comment"; exit 0
+fi
+
+# Prefer the action's execution_file output; fall back to the conventional path when not passed.
+f="${LOG:-${RUNNER_TEMP:-/tmp}/claude-execution-output.json}"
+if [ ! -f "$f" ]; then echo "no execution log at ${f:-<unset>}; skipping cost comment"; exit 0; fi
+
+# The final result event carries the totals.
+r=$(jq -c '[.[] | select(.type=="result")] | last // empty' "$f" 2>/dev/null || true)
+if [ -z "$r" ]; then echo "no result event in $f; skipping cost comment"; exit 0; fi
+
+cost=$(jq -r '.total_cost_usd // empty'   <<<"$r")
+turns=$(jq -r '.num_turns // empty'       <<<"$r")
+dur_ms=$(jq -r '.duration_ms // empty'    <<<"$r")
+in_tok=$(jq -r '.usage.input_tokens // empty'   <<<"$r")
+out_tok=$(jq -r '.usage.output_tokens // empty' <<<"$r")
+cache_create=$(jq -r '.usage.cache_creation_input_tokens // empty' <<<"$r")
+cache_read=$(jq -r '.usage.cache_read_input_tokens // empty'       <<<"$r")
+
+dur=""
+if [ -n "$dur_ms" ]; then s=$((dur_ms / 1000)); dur="$((s / 60))m $((s % 60))s"; fi
+
+cost_str="n/a"
+if [ -n "$cost" ]; then
+  cost_str="\$$(awk -v c="$cost" 'BEGIN{printf "%.2f", c}') (API-equivalent estimate)"
+fi
+
+body="🤖 **Agent run cost — ${PHASE}**
+- Model: \`${MODEL}\`
+- Tokens: ${in_tok:-?} in / ${out_tok:-?} out
+- Cache: ${cache_create:-?} created / ${cache_read:-?} read
+- Turns: ${turns:-?}${dur:+ · Duration: $dur}
+- Cost-equivalent: ${cost_str}"
+
+curl -sf -X POST \
+  -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/${GITHUB_REPOSITORY}/issues/${PR}/comments" \
+  -d "$(jq -n --arg b "$body" '{body:$b}')" >/dev/null \
+  && echo "posted cost comment to PR #$PR" \
+  || echo "failed to post cost comment (non-fatal)"

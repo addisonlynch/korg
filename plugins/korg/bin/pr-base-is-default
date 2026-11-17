@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# Assert a PR targets the default branch.
+#
+# Usage:   pr-base-is-default <base-ref> <default-branch>
+# Exit:    0 the base is the default branch; 1 it is not (with the reason on stderr).
+#
+# In bin/ rather than inline in the base-guard workflow so it can be linted and tested before it
+# merges. The predicate is four lines, but it is the entire gate — an inverted comparison
+# would green every stacked PR and nothing else in the repo would notice.
+#
+# Why the gate exists: every other gate is scoped to `main`. CI triggers on
+# `pull_request: branches: [main]` and rulesets target `~DEFAULT_BRANCH`, so a PR
+# based on another agent branch matched nothing at all —
+# `gh api repos/<owner>/<repo>/rules/branches/agent%2F<TEAM>-1` returns `[]`.
+set -euo pipefail
+
+base="${1:?usage: pr-base-is-default <base-ref> <default-branch>}"
+default="${2:?usage: pr-base-is-default <base-ref> <default-branch>}"
+
+if [ "$base" = "$default" ]; then
+  echo "base is $base — gated normally."
+  exit 0
+fi
+
+echo "::error::This PR targets '$base', not '$default'. This guard is the only check that runs on that base: the rest of CI is scoped to $default and no ruleset applies, so nothing else reviews or blocks the PR. Rebase onto $default (or merge the parent branch in) and retarget."
+exit 1

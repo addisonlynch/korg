@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Resolve the model family for a PR job from the ticket named in its title.
+#
+# Usage:   resolve-pr-model <pr-number> <review|respond>
+# Env:     GH_TOKEN          — GitHub token for the title read (required)
+#          GITHUB_REPOSITORY — owner/repo (required)
+#          LINEAR_API_KEY    — Linear API key, for resolve-ticket-model
+#          GITHUB_OUTPUT     — `model` appended, when set
+# Output:  the chosen model, logged for the run transcript.
+#
+# The author's model comes from the ticket's model:* label (the source of truth). The two
+# modes then diverge:
+#   respond — the author's model. The fixer benefits from being the model that wrote the
+#             code; continuity is the point.
+#   review  — never the author's model, hard rule. Same-family review forfeits the
+#             decorrelation that makes review work (most findings are unique
+#             to one reviewer): sonnet-authored → opus reviews; opus- or haiku-authored →
+#             sonnet reviews. The judge must not be the author.
+#
+# curl rather than `gh`: a self-hosted runner may not resolve `gh` this early in a job, and curl
+# works everywhere.
+set -euo pipefail
+
+pr="${1:?usage: resolve-pr-model <pr-number> <review|respond>}"
+mode="${2:?usage: resolve-pr-model <pr-number> <review|respond>}"
+case "$mode" in
+  review|respond) ;;
+  *) echo "::error::invalid mode '$mode' (want review|respond)"; exit 1 ;;
+esac
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+: "${GH_TOKEN:?GH_TOKEN is required}"
+
+# A failed read yields an empty title, which resolve-ticket-model turns into the sonnet default
+# rather than an error: picking the wrong model is recoverable, failing the round is not.
+title=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+  "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$pr" | jq -r '.title') || title=""
+
+author_model=$(resolve-ticket-model "$title")
+
+if [ "$mode" = "review" ]; then
+  case "$author_model" in
+    sonnet) model=opus ;;
+    *)      model=sonnet ;;   # opus- and haiku-authored PRs get the sonnet reviewer
+  esac
+else
+  model="$author_model"
+fi
+
+[ -z "${GITHUB_OUTPUT:-}" ] || echo "model=$model" >> "$GITHUB_OUTPUT"
+echo "model for PR #$pr ($mode, author=$author_model): $model"

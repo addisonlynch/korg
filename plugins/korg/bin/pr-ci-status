@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Read a PR's CI check status with a token that can see checks.
+#
+# Usage:   pr-ci-status <pr-number>
+# Output:  `gh pr checks` rows, then a final machine-readable verdict line:
+#            CI_STATUS: readable     — the per-check rows above are the CI signal
+#            CI_STATUS: unreadable   — no rows came back; the reviewer is blind and must
+#                                      withhold a clean verdict (absent never reads green)
+# Exit:    0 when readable (whatever `gh pr checks` exited — a failing or pending check is an
+#          answer, not an error), 1 when unreadable.
+# Env:     GH_TOKEN or CI_STATUS_GH_TOKEN, GITHUB_REPOSITORY — required
+#
+# Prefers CI_STATUS_GH_TOKEN over the ambient GH_TOKEN: inside the review action the
+# ambient token is the App installation token, which 403s on checks, and the agent's
+# sandbox refuses commands with an env-var assignment prefix — so the reviewer calls this
+# bare and the token swap happens here.
+#
+# It also flags any check that reports a SKIPPED REVIEW while still reporting success: a review
+# bot that skips bot-authored PRs ("Review skipped: bot user not eligible for review") still
+# shows a green row, which a verdict must not count as a second reviewer. The rule is stated
+# about the description rather than a vendor so any reviewer that skips is covered. The
+# description rides in the column `gh pr checks` already prints, so no extra API read.
+#
+# Classifying the read is this script's job, not the model's: `gh pr checks` can return
+# every check row AND a trailing 403 on one nested sub-field, which a model reads as total
+# blindness. Two rules follow. Rows present means
+# readable, whatever trails them. And unreadable requires an ERROR, not merely zero rows — the
+# review bot fires on the `needs-review` label at PR open, so it races CI and legitimately sees
+# "no checks reported on the 'X' branch"; that is empty, not blind.
+set -uo pipefail
+
+pr="${1:?usage: pr-ci-status <pr-number>}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+GH_TOKEN="${CI_STATUS_GH_TOKEN:-${GH_TOKEN:-}}"
+export GH_TOKEN
+: "${GH_TOKEN:?GH_TOKEN or CI_STATUS_GH_TOKEN is required}"
+
+out=$(gh pr checks "$pr" --repo "$GITHUB_REPOSITORY" 2>&1); st=$?
+
+# A check row is tab-separated (name<TAB>state<TAB>…); GraphQL/HTTP errors never are.
+rows=$(grep -c $'\t' <<<"$out" || true)
+
+printf '%s\n' "$out"
+
+# Column 5 of a check row is the description. Matched on the phrase "review skipped", not on
+# a bare "skip": a description like "skipped 3 files" is a review that ran. Classification
+# only — what the reviewer does with it lives in the pr-review skill.
+skipped=$(awk -F'\t' 'tolower($5) ~ /review skipped/ {print $1 " (" $5 ")"}' <<<"$out")
+if [ -n "$skipped" ]; then
+  echo "CI_NOTE: skipped review — $skipped"
+fi
+# Zero rows with a nonzero exit is unreadable by default — an allowlist of known error
+# substrings fails open on unmatched wording (DNS/transport error, rate limit, a future `gh`
+# message). The one benign zero-row nonzero case is carved out explicitly instead.
+if [ "$rows" -eq 0 ] && [ "$st" -ne 0 ] && ! grep -q 'no checks reported' <<<"$out"; then
+  echo "CI_STATUS: unreadable"
+  exit 1
+fi
+echo "CI_STATUS: readable"
+exit 0
