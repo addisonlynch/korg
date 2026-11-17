@@ -22,7 +22,8 @@ Or, to enable it for everyone working in a project, in its `.claude/settings.jso
 
 Headless runs load it with `claude -p --plugin-dir <checkout>/plugins/korg`.
 
-Requires `bash`, `git`, `jq`, and either `python3` with PyYAML or `yq`.
+Requires `bash`, `git`, `jq` and `python3`; `korg-config` also needs PyYAML or `yq`. Without
+`python3` the `gh pr create` guard falls back to a coarse match that blocks any `gh api` call.
 
 ## Configure
 

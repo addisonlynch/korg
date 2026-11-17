@@ -1,14 +1,94 @@
 #!/usr/bin/env bash
-# PreToolUse hook for Bash: refuses `gh pr create`, and a POST to the pulls API, unless
-# /korg:open-pr has written its sentinel for the current branch:
-# /tmp/open-pr-active-<branch with / replaced by _>. Exit 2 blocks the tool call.
+# PreToolUse hook for Bash: refuses opening a pull request (`gh pr create`/`new`, a POST to the
+# pulls API, a createPullRequest mutation) unless /korg:open-pr has written its sentinel for the
+# current branch within the last 15 minutes: /tmp/open-pr-active-<branch with / replaced by _>.
+# An older sentinel is one a crashed run left behind, and honouring it would leave the guard off
+# for that branch indefinitely. Exit 2 blocks the tool call.
 set -euo pipefail
 
-cmd=$(jq -r '.tool_input.command // ""')
-grep -Eq '(^|[;&|(]|\$\()[[:space:]]*gh (pr create|api [^;&|]*(--method[[:space:]]+POST|-X[[:space:]]+POST)[^;&|]*/pulls([[:space:]]|$))' <<<"$cmd" || exit 0
+input=$(cat)
+block() {
+  echo "BLOCKED: PRs are opened only through /korg:open-pr. Run /korg:open-pr instead of gh pr create.$1" >&2
+  exit 2
+}
 
-b=$( (git rev-parse --abbrev-ref HEAD 2>/dev/null || true) | tr '/' '_')
-[ -f "/tmp/open-pr-active-$b" ] && exit 0
+# The command is tokenized the way the shell would, so a pattern inside a quoted argument
+# (`grep -e 'gh pr create'`) is not a command, while `$(...)` and backtick bodies, newlines and
+# wrappers (`command gh`, `timeout 60 gh`) are. `-I` keeps a json.py or shlex.py in the project
+# from replacing the standard library.
+# shellcheck disable=SC2016  # the Python program is literal; the shell must not expand it
+if ! opens_pr=$(KORG_HOOK_INPUT="$input" python3 -I -c '
+import json, os, re, shlex
 
-echo 'BLOCKED: PRs are opened only through /korg:open-pr. Run /korg:open-pr instead of gh pr create.' >&2
-exit 2
+cmd = (json.loads(os.environ["KORG_HOOK_INPUT"]).get("tool_input") or {}).get("command") or ""
+SEPARATORS = set(";&|()<>\n")
+PULLS = re.compile(r"(^|/)repos/[^/]+/[^/]+/pulls/?(\?.*)?$")
+FIELD_FLAGS = ("-f", "-F", "--field", "--raw-field", "--input")
+
+def tokenize(text):
+    lexer = shlex.shlex(text, posix=True, punctuation_chars="();<>|&\n")
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    lexer.commenters = ""
+    try:
+        return list(lexer)
+    except ValueError:
+        return [t for part in re.split(r"([;&|()\n]+)", text) for t in part.split()]
+
+def segments(tokens):
+    seg = []
+    for tok in tokens + [";"]:
+        if tok and set(tok) <= SEPARATORS:
+            if seg:
+                yield seg
+            seg = []
+        elif tok.startswith("#") or (seg and seg[-1] == "#"):
+            seg.append("#")
+        else:
+            seg.append(tok)
+
+def opens(argv):
+    rest = argv[1:]
+    if rest[:1] == ["pr"]:
+        i = 1
+        while i < len(rest) and rest[i].startswith("-"):
+            i += 2 if rest[i] in ("-R", "--repo") else 1
+        return i < len(rest) and rest[i] in ("create", "new")
+    if rest[:1] != ["api"]:
+        return False
+    if any("createPullRequest" in a for a in rest):
+        return True
+    if not any(PULLS.search(a) for a in rest):
+        return False
+    method = None
+    for i, a in enumerate(rest):
+        if a in ("-X", "--method") and i + 1 < len(rest):
+            method = rest[i + 1]
+        elif a.startswith("--method="):
+            method = a.split("=", 1)[1]
+        elif a.startswith("-X") and len(a) > 2:
+            method = a[2:].lstrip("=")
+    if method is not None:
+        return method.upper() == "POST" or method.startswith("$")
+    return any(a == f or a.startswith(f + "=") or (f in ("-f", "-F") and a.startswith(f) and len(a) > 2)
+               for a in rest for f in FIELD_FLAGS)
+
+texts = [cmd] + re.findall(r"\$\(([^()]*)\)", cmd) + re.findall(r"`([^`]*)`", cmd)
+for text in texts:
+    for seg in segments(tokenize(text)):
+        seg = seg[: seg.index("#")] if "#" in seg else seg
+        if any(os.path.basename(t) == "gh" and opens(seg[i:]) for i, t in enumerate(seg)):
+            print("yes")
+            raise SystemExit
+'); then
+  # The parser failed (no python3, a broken interpreter, unexpected input): fall back to a coarse
+  # match rather than let a PR through unchecked.
+  grep -Eq 'gh[^;&|]*[[:space:]](pr[[:space:]]+(create|new)|api)' <<<"$input" \
+    && block " (The guard's parser failed, so it matched coarsely.)"
+  exit 0
+fi
+[ "$opens_pr" = yes ] || exit 0
+
+b=$( (git symbolic-ref --short -q HEAD 2>/dev/null || git rev-parse --abbrev-ref HEAD 2>/dev/null || true) | tr '/' '_')
+[ -n "$(find "/tmp/open-pr-active-$b" -mmin -15 2>/dev/null)" ] && exit 0
+block ""

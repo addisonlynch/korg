@@ -1,6 +1,6 @@
 {
   "name": "korg",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Agent harness for Claude Code: quality gates on every commit, ticket planning in Linear, and PR review.",
   "author": {
     "name": "addisonlynch"
