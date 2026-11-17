@@ -5,7 +5,7 @@
     {
       "name": "korg",
       "source": "./plugins/korg",
-      "description": "Agent harness: commit gates, PR review, ticket loop, report loops."
+      "description": "Agent harness for Claude Code: quality gates on every commit and ticket planning in Linear."
     }
   ]
 }
