@@ -1,7 +1,7 @@
 # korg
 
-A Claude Code plugin for agent-driven development: quality gates on every commit, with more
-layers (PR review, ticket planning, an autonomous ticket loop) to follow.
+A Claude Code plugin for agent-driven development: quality gates on every commit and ticket
+planning in Linear, with more layers (PR review, an autonomous ticket loop) to follow.
 
 ## Install
 
@@ -39,9 +39,40 @@ commands:
   format_file: "ruff format {file}"
 
 rules:
-  # Optional. A rule file saying which tests should exist; test-review deletes the rest.
+  # What counts as a checkable acceptance criterion and which tests should exist; test-review
+  # deletes the rest. Optional for the gates, required by the planning skills.
   testing_signal: .claude/rules/testing-signal.md
+
+# The planning layer (roadmap, to-prd, groom-backlog). Each planning skill stops when a key it
+# needs is unset. Relative paths are from the project root; a leading ~ is expanded.
+linear:
+  team: TID          # team key, addressed by name
+  workspace: trackid # urlKey, for ticket links
+planning:
+  # Every label on the team and when to apply it. The project owns it; korg never edits it.
+  label_taxonomy: .korg/label-taxonomy.md
+  # Optional. What an unattended run must never do, and what a ticket touching a sensitive area
+  # must say. roadmap --auto and groom-backlog refuse agent-ready work it forbids.
+  hazards: .korg/ticket-hazards.md
+  # Where /korg:to-prd writes PRDs. A leading ~ is expanded.
+  prd_dir: ~/trackid-vault/product/prds
+  # Optional. A plan file whose `## Now` section groom-backlog checks the queue against.
+  plan: ~/vault/plan.md
 ```
+
+The planning skills talk to Linear the way the project's Linear rule in `.claude/rules/` says
+(including the italic filer line a non-interactive job opens a ticket with), and assume:
+
+- states `Backlog`, `Needs Shaping`, `Todo`, `Needs Human`;
+- type labels `bug`, `chore`, `idea`, `spike`, and `agent-ready`, `auto-filed`;
+- `model:opus`, `model:sonnet`, `model:haiku` route the runner's model; `model:fable` marks
+  interactive-only work and never coexists with `agent-ready`;
+- an agent runner that takes `agent-ready` tickets (stripping the label), works each on an
+  `agent/<ID>` branch in about two hours, and skips a ticket that already has an open PR;
+- `gh`, for groom-backlog's re-queue check.
+
+`/korg:to-prd` opens each PRD with `question` / `decision` / `verdict` / `consumed_by`
+frontmatter and fills `consumed_by` with the parent ticket.
 
 ## Skills
 
@@ -51,6 +82,9 @@ rules:
 | `/korg:verify` | Lint and the scoped tests |
 | `/korg:deslop` | Three-agent adversarial review of the diff, then the worthwhile fixes |
 | `/korg:test-review` | Test-quality review of the tests the diff touched |
+| `/korg:roadmap` | Capture an idea as a Linear issue, or `--auto` to scope and queue it for the agent runner |
+| `/korg:to-prd` | Write a PRD from the conversation, then a parent issue with one child ticket per unit of work |
+| `/korg:groom-backlog` | Triage the backlog: stale, stuck, unready, mislabelled and duplicate tickets |
 
 Project rules in `.claude/rules/*.md` (with optional `paths:` frontmatter) and the root
 `CLAUDE.md` are enforced by deslop's rules cop.
