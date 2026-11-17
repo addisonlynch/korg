@@ -178,7 +178,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR: ${{ github.event.pull_request.number }}
         run: .korg-harness/plugins/korg/bin/resolve-pr-model "$PR" review
-      - uses: anthropics/claude-code-action@v1
+      - uses: anthropics/claude-code-action@6070f08d2b4766348e0acded463606a7b176417b # v1.0.279
         id: review
         if: steps.scope.outputs.wf == 'false'
         env:

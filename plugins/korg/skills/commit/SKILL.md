@@ -16,10 +16,14 @@ unset.
 
 Parse `$ARGUMENTS`:
 - First non-flag argument = commit message (generated if not provided)
-- `--quick` (`-q`): Gate 1 and Gate 5 only
+- `--quick` (`-q`): Gate 1 and Gate 5 only. Ignored in CI.
 - `--nochecks` (`-nc`): skip every gate and go straight to **Commit and push**. The repo's
   pre-commit hooks still run; if one fails or rewrites files, fix the issue and retry until it
-  passes. Use only when the user explicitly asks for a raw commit. Wins over `--quick`.
+  passes. Use only when the user explicitly asks for a raw commit. Wins over `--quick`. Ignored
+  in CI.
+
+In CI (`GITHUB_ACTIONS` is `true`) every gate runs, whatever the change's size: no person reviews
+an agent's commit before it is pushed, so the gates are the review.
 
 ## Pre-flight
 
@@ -48,7 +52,7 @@ Invariants:
 
 Run `commands.lint`. If anything still fails after auto-fix, stop and report.
 
-## Gate 2: Test review (skip if `--quick` or no test files changed)
+## Gate 2: Test review (skip if `--quick` outside CI, or no test files changed)
 
 ```sh
 { git diff --name-only HEAD; git ls-files --others --exclude-standard; } | grep -E '(test_|_test\.|\.test\.|/tests/|/__tests__/)'
@@ -56,7 +60,7 @@ Run `commands.lint`. If anything still fails after auto-fix, stop and report.
 If any match, run `/korg:test-review`. It runs before deslop so deslop reviews the tests as
 they will be committed.
 
-## Gate 3: Deslop (skip if `--quick`)
+## Gate 3: Deslop (skip if `--quick` outside CI)
 
 Run `/korg:deslop`. Its three reviewers MUST run as parallel subagents; a self-graded verdict
 in your own context ("diff is clean, nothing to cut") is not a deslop run. If zero subagents
@@ -67,7 +71,7 @@ large diffs, so each commit is reviewed on its own. Whole-branch review happens 
 
 After applying fixes, re-run Gate 1. Do not run tests here.
 
-## Gate 4: Security (skip if `--quick`; triggered, not always-on)
+## Gate 4: Security (skip if `--quick` outside CI; triggered, not always-on)
 
 Path triggers:
 ```sh
@@ -129,5 +133,5 @@ failing test, decide its provenance before touching anything:
 - Never commit to the default branch, `main`, or `master`.
 - Never commit without a message (generated or provided).
 - If a gate fails and cannot be auto-fixed, stop before committing.
-- `--nochecks` skips the gates, not the pre-commit hooks: never bypass a hook with
+- `--nochecks` (outside CI) skips the gates, not the pre-commit hooks: never bypass a hook with
   `--no-verify`.

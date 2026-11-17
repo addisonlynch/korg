@@ -23,7 +23,7 @@ Optional keys, each skipping its part when unset:
 ## Arguments
 
 Parse `$ARGUMENTS`:
-- `--quick` (`-q`): passed through to `/korg:commit` (skips deslop, test-review, security)
+- `--quick` (`-q`): passed through to `/korg:commit` (skips deslop, test-review, security; ignored in CI)
 - `--auto` (`-a`): skip the human confirmation checkpoint; open the PR immediately after push
 - `--fix-ci`: after the PR opens, poll CI and fix failures (max 3 iterations); no short form
 
@@ -153,7 +153,7 @@ If the output does not list `needs-review`, say so and stop. Report the PR URL e
 1. Poll `gh pr checks <PR_NUMBER>` every 90 seconds.
 2. All pass → report success and stop.
 3. Failure → read logs with `gh run view <run-id> --log-failed`, fix locally, then run
-   `/korg:commit --quick "fix: <what>"`, which lints, runs the scoped tests, commits and pushes.
+   `/korg:commit "fix: <what>"`, which runs the gates, commits and pushes.
 4. Repeat. Max 3 iterations. If still failing, report what was tried and stop.
 
 ## Stop rules
