@@ -1,0 +1,39 @@
+name: korg PR base guard
+
+# Reusable. The caller's `pull_request` trigger must carry NO `branches:` filter: this is the
+# one gate that sees a PR based on something other than the default branch, and a
+# `branches: [main]` filter is exactly what makes stacked PRs invisible. Predicate and
+# rationale: plugins/korg/bin/pr-base-is-default.
+#
+# It cannot make the merge impossible: required-check enforcement is itself
+# `~DEFAULT_BRANCH`-scoped, so a stacked PR gets a red X and stays mergeable. Closing that
+# needs a ruleset whose `ref_name` is not `~DEFAULT_BRANCH`, listing this job's check.
+#
+# The caller listens to opened, reopened and edited, not synchronize: a push cannot change
+# a PR's base, and `edited` is what fires on a retarget.
+
+on:
+  workflow_call:
+
+jobs:
+  base-is-main:
+    # `edited` fires on title/body edits too; only a retarget carries `changes.base`.
+    if: github.event.action != 'edited' || github.event.changes.base
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      # The predicate comes from korg at the ref the caller pinned, never from the PR: a branch
+      # that edited it to `exit 0` would otherwise pass its own gate.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .korg-harness
+          persist-credentials: false
+      - name: Assert the PR targets the default branch
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: .korg-harness/plugins/korg/bin/pr-base-is-default "$BASE" "$DEFAULT_BRANCH"

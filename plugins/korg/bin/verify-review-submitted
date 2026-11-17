@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Assert the reviewer actually submitted a review during this run.
+#
+# Usage:   verify-review-submitted <pr-number>
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — for the review count and the comment
+#          BEFORE                      — review count captured before the reviewer ran ("" = unknown)
+# Exit:    0 a new review landed; 1 otherwise, after commenting on the PR.
+#
+# The action can report success while the orchestrator silently no-ops (backgrounds its subagents
+# and ends the turn with nothing posted), so a green review step is not proof of a review.
+#
+# Compares the review count captured before the action with the count now: runner and GitHub
+# clocks drift on a self-hosted runner, so a timestamp comparison can count a prior round's review
+# or reject a real one. Fails CLOSED — if either count is missing or
+# the count did not increase, keep needs-review and go red so the PR routes to a human.
+set -euo pipefail
+
+pr="${1:?usage: verify-review-submitted <pr-number>}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+before="${BEFORE:-}"
+
+# GITHUB_OUTPUT cleared: the helper writes `count=` when it is set, and this step's output is
+# `outcome`, not a second count nobody reads.
+after=$(GITHUB_OUTPUT='' pr-review-count "$pr")
+
+if [ -z "$before" ] || [ -z "$after" ] || [ "$after" -le "$before" ]; then
+  gh pr comment "$pr" --repo "$GITHUB_REPOSITORY" \
+    --body "PR review did not complete: no new review was submitted during this run. Keeping \`needs-review\` — a human needs to review, or remove and re-add the label to re-trigger the bot."
+  echo "No new review (before=$before after=$after) — failing so needs-review stays."
+  exit 1
+fi
+echo "Review count $before -> $after."

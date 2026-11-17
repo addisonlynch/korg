@@ -1,0 +1,258 @@
+name: korg PR review
+
+# Reusable. The caller owns the triggers and the workflow name; see docs/callers.md.
+#
+# The reviewer's verdict is the `agent-review` check run on the head SHA: opened pending here,
+# closed by the reviewer with success (clean) or failure (findings), forced to failure by the
+# finalize step when the reviewer never answers. This workflow's own conclusion carries no
+# verdict: a workflow_run listener fires on every completion (success, cancelled, skipped) and
+# must re-read the check run itself, so anything but a findings verdict no-ops there.
+
+on:
+  workflow_call:
+    inputs:
+      runner_target:
+        description: "'' or 'github' runs the reviewer on ubuntu-latest; any other value is a self-hosted runner label."
+        type: string
+        default: ''
+      claude_executable:
+        description: Path to a Claude Code binary pre-installed on the self-hosted runner. Ignored on hosted runners, where the action installs its own.
+        type: string
+        default: ''
+      human_reviewer:
+        description: Login whose submitted review is the verdict on workflow-file PRs. Defaults to the repository owner.
+        type: string
+        default: ''
+      linear_mcp_server:
+        description: Name of the Linear MCP server in the project's .mcp.json.
+        type: string
+        default: linear
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
+      LINEAR_CLIENT_ID:
+        required: false
+      LINEAR_CLIENT_SECRET:
+        required: false
+
+jobs:
+  # Publishes the agent-review check on workflow-file PRs off the human reviewer's actual
+  # review; on every other PR the bot's own verdict owns the check.
+  human-verdict:
+    if: >-
+      github.event_name == 'pull_request_review' &&
+      github.event.review.user.login == (inputs.human_reviewer || github.repository_owner)
+    # Hosted: must not queue behind a self-hosted pool's multi-minute Claude jobs.
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+      checks: write
+    concurrency:
+      group: korg-human-verdict-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - name: Complete the agent-review check from the human verdict
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_STATE: ${{ github.event.review.state }}
+        run: |
+          # Scope check inlined rather than pr-touches-workflows: a checkout here would run
+          # PR-controlled code with checks: write.
+          # `gh pr diff` requests the diff media type, which counts as repository content and
+          # 403s under this job's deliberately narrow scopes. The files API answers the same
+          # question and is covered by pull-requests: read.
+          files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PR/files" --jq '.[].filename')
+          if ! grep -q '^\.github/workflows/' <<<"$files"; then
+            echo "not a workflow-file PR; the bot's verdict owns the check"
+            exit 0
+          fi
+          conclusion=success
+          [ "$REVIEW_STATE" = "changes_requested" ] && conclusion=failure
+          # Nothing opens in_progress earlier (a never-reported required check already
+          # blocks as "Expected"); a re-review's fresh run supersedes the previous one.
+          gh api "repos/$GITHUB_REPOSITORY/check-runs" -X POST \
+            -f name=agent-review -f head_sha="$HEAD_SHA" \
+            -f status=completed -f conclusion="$conclusion" \
+            -f "output[title]=Human review: $REVIEW_STATE" \
+            -f "output[summary]=Workflow-file PR; the human reviewer's submitted review is the verdict." \
+            --jq '.id' > /dev/null
+          echo "agent-review completed as $conclusion from the $REVIEW_STATE review"
+
+  claude-review:
+    # Round 1 fires on the needs-review label. Re-reviews fire on push to agent branches only,
+    # so a human PR never burns a review run per push, unless the PR carries `no-auto-review`,
+    # the human kill switch. Only the synchronize arm honors it: adding needs-review is an
+    # explicit human action and stays the way to request a one-off review on such a PR.
+    if: >-
+      (github.event.action == 'labeled' && github.event.label.name == 'needs-review') ||
+      (github.event.action == 'synchronize' && startsWith(github.event.pull_request.head.ref, 'agent/') &&
+       !contains(github.event.pull_request.labels.*.name, 'no-auto-review'))
+    runs-on: ${{ (inputs.runner_target == '' || inputs.runner_target == 'github') && 'ubuntu-latest' || fromJSON(format('["self-hosted","{0}"]', inputs.runner_target)) }}
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+      # The skill's CI-status check (`gh pr checks`) 403s without checks read, and the reviewer
+      # then withholds a clean verdict. write covers the agent-review check run this job
+      # publishes; statuses covers the commit-status API fallback.
+      checks: write
+      statuses: read
+      # `gh pr checks` resolves each check's parent workflow run over GraphQL
+      # (checkSuite.workflowRun); without actions:read that sub-field 403s the whole query.
+      actions: read
+    concurrency:
+      group: korg-review-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      # korg itself at the ref the caller pinned, never the PR's code.
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .korg-harness
+          persist-credentials: false
+      # The scripts find korg-config on PATH, and the reviewer calls them by bare name. The
+      # exclude keeps korg's files out of the reviewer's greps and `git status`.
+      - name: Put korg's scripts on PATH
+        run: |
+          echo "$GITHUB_WORKSPACE/.korg-harness/plugins/korg/bin" >> "$GITHUB_PATH"
+          grep -qxF '.korg-harness/' .git/info/exclude || echo '.korg-harness/' >> .git/info/exclude
+      - name: Detect workflow-file changes
+        id: scope
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: .korg-harness/plugins/korg/bin/pr-touches-workflows "$PR"
+      - name: Route workflow-file PRs to human (bot cannot review these)
+        if: steps.scope.outputs.wf == 'true'
+        # needs-review is cleared by the last step. No check opens here: "Expected" already
+        # blocks the merge, and human-verdict publishes the verdict off the human's review,
+        # never before (auto-success would green an unreviewed gate).
+        # Posted once per PR, not per push: this step runs on every `synchronize`, so the
+        # marker is keyed on the PR alone; a head-SHA key would not dedupe it.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          .korg-harness/plugins/korg/bin/pr-comment-once "$PR" "workflow-file-review" \
+            "This PR modifies .github/workflows/; the review bot cannot run on workflow files (GitHub restricts it). A human needs to review it: submitting your review is what completes the agent-review check."
+      # Exports LINEAR_API_KEY so CI speaks to Linear as the app actor, never as the human, and
+      # its assignments and mentions notify them. Gated behind the scope check so a rotated
+      # secret or a Linear outage cannot stop the human-handoff comment above. Best-effort:
+      # with no key, resolve-pr-model falls back to its default and the criteria fetch
+      # soft-fails, which beats not reviewing at all.
+      - name: Mint Linear agent token
+        if: steps.scope.outputs.wf == 'false'
+        continue-on-error: true
+        env:
+          LINEAR_CLIENT_ID: ${{ secrets.LINEAR_CLIENT_ID }}
+          LINEAR_CLIENT_SECRET: ${{ secrets.LINEAR_CLIENT_SECRET }}
+        run: .korg-harness/plugins/korg/bin/linear-agent-token
+      - name: Count reviews before
+        id: before
+        if: steps.scope.outputs.wf == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: .korg-harness/plugins/korg/bin/pr-review-count "$PR"
+      - name: Open the agent-review check run
+        id: check
+        if: steps.scope.outputs.wf == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: .korg-harness/plugins/korg/bin/publish-review-check open "$PR" "$HEAD_SHA"
+      # The reviewer never runs the author's model: same-family review forfeits the
+      # decorrelation that makes review work. The author's family comes from the ticket's
+      # model:* label; `review` mode flips it.
+      - name: Resolve review model from ticket
+        id: model
+        if: steps.scope.outputs.wf == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: .korg-harness/plugins/korg/bin/resolve-pr-model "$PR" review
+      - uses: anthropics/claude-code-action@v1
+        id: review
+        if: steps.scope.outputs.wf == 'false'
+        env:
+          # LINEAR_API_KEY arrives from the mint step via $GITHUB_ENV; it expands the Bearer
+          # header of the Linear MCP server in .mcp.json.
+          # The action replaces GH_TOKEN/GITHUB_TOKEN inside the agent with its App installation
+          # token, so this one serves the action's own setup only.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A distinct name survives that replacement. Checks are neither readable nor writable
+          # on the App token; pr-ci-status and `publish-review-check close` read this instead.
+          CI_STATUS_GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Unset on local runs, which is how the skill knows to skip check publishing.
+          CHECK_RUN_ID: ${{ steps.check.outputs.check_run_id }}
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Self-hosted runners that share one $HOME collide on ~/.claude/downloads/ when the
+          # action installs concurrently ("Text file busy"), so they reuse a pre-installed binary.
+          path_to_claude_code_executable: ${{ inputs.runner_target != '' && inputs.runner_target != 'github' && inputs.claude_executable || '' }}
+          # The autonomous loop is bot-triggered (the implement bot labels, the fix agent
+          # pushes); without this the action refuses.
+          allowed_bots: "*"
+          # The permission profile rides in claude_args, not the action's `settings` input: that
+          # input is shallow-merged into ~/.claude/settings.json and never reset, so on a shared
+          # self-hosted $HOME the deny list would persist into the next session. `--setting-sources
+          # project,local` drops the user-level file from the read path, and
+          # `enableAllProjectMcpServers` is set inline because the Linear MCP server depends on it.
+          claude_args: >-
+            --model ${{ steps.model.outputs.model }} --max-turns 80
+            --plugin-dir ${{ github.workspace }}/.korg-harness/plugins/korg
+            --setting-sources project,local
+            --settings '{"enableAllProjectMcpServers":true,"permissions":{"allow":["Task","Skill","Bash(korg-config*)","Bash(gh api *)","Bash(gh pr diff*)","Bash(gh pr view*)","Bash(gh pr checks*)","Bash(pr-ci-status*)","Bash(gh pr comment*)","Bash(gh pr review*)","Bash(gh pr edit*)","Bash(pr-test-integrity-flag*)","Bash(publish-review-check close*)","Read","Glob","Grep","mcp__${{ inputs.linear_mcp_server }}"],"deny":["Write","Edit","Bash(git commit*)","Bash(git push*)","Bash(rm *)"]}}'
+          show_full_output: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review this PR by invoking the /korg:pr-review skill and following its instructions.
+      - name: Upload execution log
+        if: "!cancelled() && steps.scope.outputs.wf == 'false'"
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-log-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.review.outputs.execution_file }}
+          retention-days: 30
+      # Fails closed, keeping needs-review so the PR routes to a human; see the script header.
+      - name: Verify a review was submitted this run
+        id: verify
+        if: "!cancelled() && steps.scope.outputs.wf == 'false'"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ steps.before.outputs.count }}
+        run: .korg-harness/plugins/korg/bin/verify-review-submitted "$PR"
+      # A reviewer that crashed or silently no-op'd leaves the check pending; this forces it to
+      # a verdict-less failure (`forced=true`) that the fix loop knows not to dispatch on.
+      - name: Finalize the agent-review check run
+        if: always() && steps.scope.outputs.wf == 'false' && steps.check.outputs.check_run_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: .korg-harness/plugins/korg/bin/review-check-finalize "${{ steps.check.outputs.check_run_id }}"
+      - name: Post run cost comment
+        if: always() && steps.scope.outputs.wf == 'false'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          MODEL: ${{ steps.model.outputs.model }}
+          EXECUTION_FILE: ${{ steps.review.outputs.execution_file }}
+        run: .korg-harness/plugins/korg/bin/post-cost-comment "$PR" reviewer "$MODEL" "$EXECUTION_FILE"
+      # The reviewer clears the label itself too. Gated on verify, not review.outcome: a silent
+      # no-op review reports success but leaves verify red, so needs-review stays.
+      - name: Remove needs-review label
+        if: steps.scope.outputs.wf == 'true' || steps.verify.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh api --method DELETE "repos/$GITHUB_REPOSITORY/issues/$PR/labels/needs-review" || true

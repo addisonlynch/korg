@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Deterministically flags a PR diff for the class of change that must never slip through as a
+# mere model judgment call: a deleted test file, a net drop in test assertions, or a neutered
+# Makefile test recipe (a removed `pytest` or `npm run test` line). pr-review's
+# correctness reviewer cites this script's output verbatim as [fix here] findings.
+#
+# A `.github/workflows/ci.yml` touch is deliberately NOT flagged: pr-touches-workflows
+# routes every workflow-file PR to a human before the reviewer that runs this script, so the
+# script never sees one.
+#
+# Usage:   pr-test-integrity-flag <pr-number>
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — for `gh pr diff`
+# Output:  one flag line per finding on stdout, in this order: deleted test files, weakened
+#          assertions, Makefile test-target touches. No output means no findings.
+# Exit:    0 on a successful classification (findings or none); 1 if the diff could not be
+#          read — never a silent "no findings", which would let one of these actually happen.
+set -euo pipefail
+
+pr="${1:?usage: pr-test-integrity-flag <pr-number>}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+
+diff=$(gh pr diff "$pr" --repo "$GITHUB_REPOSITORY") \
+  || { echo "::error::gh pr diff failed for PR #$pr — cannot classify its diff." >&2; exit 1; }
+
+is_test_path() {
+  case "$1" in
+    tests/*.py|*/tests/*.py|test_*.py|*/test_*.py|*_test.py) return 0 ;;
+    *.test.ts|*.test.tsx|*.test.js|*.test.jsx|*.test.mjs) return 0 ;;
+    *.spec.ts|*.spec.tsx|*.spec.js|*.spec.jsx|*.spec.mjs) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+deleted_test_files=()
+makefile_touched=""
+removed_asserts=0
+added_asserts=0
+
+current_file=""
+prev_old_file=""
+# Set while inside a deleted test file's hunks. That file is already reported as a deletion, so
+# counting its removed asserts too would double-flag one deletion; the `+++ /dev/null` header
+# always precedes the file's `-` lines, so one in-pass flag is enough.
+skip_asserts=""
+
+while IFS= read -r line; do
+  case "$line" in
+    "--- a/"*)
+      prev_old_file="${line#--- a/}"
+      ;;
+    "--- /dev/null")
+      prev_old_file=""
+      ;;
+    "+++ b/"*)
+      current_file="${line#+++ b/}"
+      skip_asserts=""
+      ;;
+    "+++ /dev/null")
+      # File deleted; the path lived on the old ("--- a/…") side.
+      current_file="$prev_old_file"
+      skip_asserts=""
+      if is_test_path "$current_file"; then
+        deleted_test_files+=("$current_file")
+        skip_asserts=1
+      fi
+      ;;
+    ---|+++)
+      ;;
+    -*|+*)
+      # Only assertions inside test files count: an `assert` removed from production code is a
+      # correct change (asserts are stripped under `-O`, so replacing one with a raise is right),
+      # not a weakened test. Counted across files rather than per-file: an assertion moved from one
+      # test file to another (removed in the first, added in the second) nets to zero.
+      if [ -z "$skip_asserts" ] && is_test_path "$current_file" \
+        && [[ "$line" =~ ^[+-][[:space:]]*(assert[[:space:]]|assert\(|expect\() ]]; then
+        if [[ "$line" == -* ]]; then
+          removed_asserts=$(( removed_asserts + 1 ))
+        else
+          added_asserts=$(( added_asserts + 1 ))
+        fi
+      fi
+      # A *removed* Makefile line that runs the test suite. The reward-hack is neutering a test
+      # target's recipe (e.g. `pytest` -> `true`), which shows up as a removed line even when the
+      # `test*:` header is unchanged diff context — so matching the header alone would miss the
+      # very case this exists to catch. Removals only: a diff that merely adds a test invocation
+      # is a new test target, a strict improvement. Matched as a whole token, and `npm run test`
+      # matched because the frontend targets shell out to npm, so ordinary edits that merely
+      # contain "test" — `.PHONY: … test …`, the `@test -n "$(m)"` guard, `npm run test:build` —
+      # do not false-positive.
+      if [[ "$line" == -* && "$current_file" == "Makefile" ]] \
+        && { [[ "$line" =~ (^|[^a-zA-Z])pytest([^a-zA-Z]|$) ]] \
+          || [[ "$line" =~ npm[[:space:]]+run[[:space:]]+test([^a-zA-Z:._-]|$) ]]; }; then
+        makefile_touched=1
+      fi
+      ;;
+  esac
+done <<<"$diff"
+
+# `${var+…}`: an empty array is unset under `set -u` on bash 3.2, which macOS still ships.
+for f in ${deleted_test_files+"${deleted_test_files[@]}"}; do
+  echo "deleted test file: $f"
+done
+
+if [ "$removed_asserts" -gt "$added_asserts" ]; then
+  echo "weakened assertions in test files (removed $removed_asserts, added $added_asserts)"
+fi
+
+[ -n "$makefile_touched" ] && echo "touches Makefile test target: Makefile"
+
+exit 0

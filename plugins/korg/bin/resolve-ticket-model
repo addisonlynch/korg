@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Resolve the model family for a Linear ticket from its model:* label.
+#
+# Usage:   resolve-ticket-model <TEAM>-123     (or just 123, or any string containing <TEAM>-123 —
+#                                             a PR title, say)
+# Env:     LINEAR_API_KEY   — Linear API key (required)
+# Config:  linear.team      — the team key ticket ids are matched on
+# Output:  prints `opus`, `sonnet` or `haiku` on stdout (default `sonnet` on any miss/failure).
+#
+# The ticket is the single source of truth for the run model. Implement passes the ticket id it was
+# dispatched with; review and respond pass the PR title, so their model matches the author's without
+# any GitHub-side label: accepting a free-form string is what lets all three callers share one
+# script.
+set -uo pipefail
+
+arg="${1-}"
+
+# A bare number is already the sequence id; anything else must carry a <TEAM>-N somewhere. A string
+# with no ticket in it resolves to the sonnet default rather than fetching. Empty is one of those
+# strings, deliberately: respond and review derive the title from a `curl | jq` that yields "" on
+# any API blip, and defaulting is the documented behavior there — refusing would kill the job.
+if [[ "$arg" =~ ^[0-9]+$ ]]; then
+  seq="$arg"
+else
+  team=$(korg-config linear.team) || { echo "::warning::korg-config could not read linear.team; resolving to sonnet" >&2; team=""; }
+  seq=""
+  [ -z "$team" ] || seq=$(printf '%s' "$arg" | grep -oE "$team-[0-9]+" | head -1 || true)
+  if [ -z "$seq" ]; then echo sonnet; exit 0; fi
+fi
+
+# Any fetch/parse failure falls through to the `sonnet` default, which is the safe direction: a
+# ticket that should have run opus runs sonnet, rather than the run failing outright. `model:fable`
+# is deliberately not resolved — Fable needs an interactive shell, so a Fable ticket is never
+# agent-ready and never reaches a workflow; if one somehow does, it runs sonnet.
+labels=$(linear-issue "$seq" 2>/dev/null | jq -r '.labels[]?.name' 2>/dev/null)
+
+if printf '%s\n' "$labels" | grep -qx "model:opus"; then
+  echo opus
+elif printf '%s\n' "$labels" | grep -qx "model:haiku"; then
+  echo haiku
+else
+  echo sonnet
+fi

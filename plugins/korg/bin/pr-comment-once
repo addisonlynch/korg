@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Post a PR comment at most once per (PR, marker).
+#
+# Usage:   pr-comment-once <pr-number> <marker> <body>
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — required
+# Exit:    0 whether it posted or skipped; 1 only when the read or the post failed.
+#
+# The marker rides in the posted body as an HTML comment, prefixed with the repository name, so it
+# is invisible to a reader and exact to match. Callers choose what the marker is keyed on, and that choice is the whole
+# behaviour:
+#   - key on the PR alone for a notice that says the same thing every time (the workflow-file
+#     routing notice, which otherwise lands once per synchronize);
+#   - key on the head SHA for a notice about a specific commit's verdict (escalation,
+#     pushless round), so a genuinely new red verdict on a new head still speaks up.
+#
+# Existing comments are read unfiltered rather than searched: GitHub's search index lags by
+# seconds to minutes.
+#
+# Read-then-post is not atomic, and GitHub offers no comment upsert, so this is a dedupe and
+# not a once-only delivery guarantee: two callers that both read before either posts still
+# both post. That window is what the callers' `concurrency` groups already close — and
+# duplicate dispatches arrive sequentially, not as a race. The residual is two callers whose
+# concurrency groups differ for one PR.
+set -euo pipefail
+
+pr="${1:?usage: pr-comment-once <pr-number> <marker> <body>}"
+marker="${2:?usage: pr-comment-once <pr-number> <marker> <body>}"
+body="${3:?usage: pr-comment-once <pr-number> <marker> <body>}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+: "${GH_TOKEN:?GH_TOKEN is required}"
+
+tag="<!-- ${GITHUB_REPOSITORY#*/}:$marker -->"
+
+# Its own assignment, not a pipeline into grep: a failed API read must fail the script under
+# `set -e`, or a transport error would read as "no existing comment" and post exactly the
+# duplicate this exists to prevent.
+existing=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --jq '.[].body')
+if grep -qF -- "$tag" <<<"$existing"; then
+  echo "PR #$pr already carries '$marker' — not posting again."
+  exit 0
+fi
+
+gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" -X POST \
+  -f body="$body
+
+$tag" --jq '.id' > /dev/null
+echo "posted '$marker' on PR #$pr."

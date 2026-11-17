@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Fail-closed finalizer for the `agent-review` check run.
+#
+# Usage:   review-check-finalize <check-run-id>
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — required
+#          GITHUB_OUTPUT               — `conclusion` and `forced` appended, when set
+# Exit:    0 the check ended completed (whatever the conclusion); 1 the API was unreadable.
+#
+# Runs after the reviewer agent, always. The agent completes the check itself with its
+# verdict; if the run ends with the check still in_progress — the agent crashed, silently
+# no-op'd, or deliberately skipped closing because a push landed mid-review — this forces
+# it to `failure` so an absent verdict never reads as green (absent-never-green).
+#
+# The forced failure is stamped `external_id=forced`, the machine flag a fix-round dispatcher
+# reads: no fix round dispatches off it, because there are no findings to fix. The forced
+# case surfaces as the red check alone (plus, when the reviewer submitted no review at
+# all, verify-review-submitted keeping `needs-review`) — the review run's own
+# conclusion does not mirror the verdict; when the reviewer
+# submitted its review but ran out of turns before closing the check, the red check is
+# the only signal — the human re-triggers the review.
+set -euo pipefail
+
+id="${1:?usage: review-check-finalize <check-run-id>}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+: "${GH_TOKEN:?GH_TOKEN is required}"
+
+run=$(gh api "repos/$GITHUB_REPOSITORY/check-runs/$id") \
+  || { echo "::error::could not read check run $id"; exit 1; }
+
+if [ "$(jq -r '.status' <<<"$run")" = "completed" ]; then
+  conclusion=$(jq -r '.conclusion' <<<"$run")
+  forced=false
+else
+  gh api "repos/$GITHUB_REPOSITORY/check-runs/$id" -X PATCH \
+    -f status=completed -f conclusion=failure -f external_id=forced \
+    -f "output[title]=Review did not complete" \
+    -f "output[summary]=The reviewer run ended without publishing a verdict (crash, silent no-op, or a mid-review push superseding this commit). Not a findings failure: no fix round is dispatched off this." \
+    --jq '.id' > /dev/null
+  conclusion=failure
+  forced=true
+fi
+
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  echo "conclusion=$conclusion" >> "$GITHUB_OUTPUT"
+  echo "forced=$forced" >> "$GITHUB_OUTPUT"
+fi
+echo "agent-review check run $id: conclusion=$conclusion forced=$forced"

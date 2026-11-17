@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+# Fetch one Linear issue by its <TEAM>-N identifier, with state and labels expanded to names.
+#
+# Usage:   linear-issue <TEAM>-123     (or just 123)
+# Env:     LINEAR_API_KEY   — Linear personal API key (required)
+# Config:  linear.team      — the team key the identifier is built from (required)
+# Output:  the issue as JSON on stdout; non-zero exit if it can't be fetched (not-found included).
+#
+# One GraphQL query: `issue(id:)` accepts the human identifier directly, so no list call or
+# pagination. The output flattens `labels.nodes` to a plain `labels` array of {id,name} objects
+# and keeps `state` as {id,name,type}, so callers match on names and pin nothing.
+#
+# GraphQL returns HTTP 200 with an `errors` array for a missing issue (auth failures are real
+# 4xx, which --fail catches), so a null `.data.issue` must be checked explicitly: without it a
+# typo'd ticket id would print nothing and exit 0, and callers would read that as an issue with
+# no state.
+set -uo pipefail
+
+t="${1:?usage: linear-issue <TEAM>-N}"
+t="${t##*-}"                           # accept <TEAM>-123 or bare 123
+: "${LINEAR_API_KEY:?LINEAR_API_KEY is required}"
+team=$(korg-config linear.team)
+[ -n "$team" ] || { echo "linear-issue: linear.team is not set in .korg.yml" >&2; exit 1; }
+
+# shellcheck disable=SC2016  # $id is a GraphQL variable, not a shell expansion
+query='query($id: String!) { issue(id: $id) {
+  id identifier number title description priority createdAt url branchName
+  state { id name type } labels { nodes { id name } } team { id key }
+} }'
+
+resp=$(curl -sS --fail --max-time 20 -X POST https://api.linear.app/graphql \
+  -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" \
+  -d "$(jq -nc --arg q "$query" --arg id "$team-$t" '{query: $q, variables: {id: $id}}')") || exit 1
+
+jq -e '.data.issue | select(. != null) | .labels = .labels.nodes' <<<"$resp" && exit 0
+echo "linear-issue: could not fetch $team-$t: $(jq -c '.errors // "empty response"' <<<"$resp")" >&2
+exit 1

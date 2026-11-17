@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# Publish the `agent-review` check run — the reviewer's merge-gating verdict.
+#
+# Usage:   publish-review-check open  <pr-number> <head-sha>
+#          publish-review-check close <success|failure> <title> [summary]
+# Env:     GH_TOKEN or CI_STATUS_GH_TOKEN, GITHUB_REPOSITORY — required (the token needs
+#          `checks: write`); CHECK_RUN_ID — the run `close` completes (unset = local run,
+#          nothing to close, exit 0); GITHUB_OUTPUT — `check_run_id` appended on open
+# Exit:    0 the API call succeeded (or close had no check to close); 1 otherwise.
+#
+# `open` creates the run in_progress on the head SHA before the reviewer starts; `close`
+# completes it with the verdict. The reviewer's sandbox refuses any command carrying an
+# env-var assignment or expansion, so `close` takes no id argument and reads both the
+# token (CI_STATUS_GH_TOKEN preferred — the ambient App token cannot write checks) and
+# CHECK_RUN_ID from the environment; the agent invokes it with literals only.
+set -euo pipefail
+
+cmd="${1:?usage: publish-review-check open|close ...}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+GH_TOKEN="${CI_STATUS_GH_TOKEN:-${GH_TOKEN:-}}"
+export GH_TOKEN
+: "${GH_TOKEN:?GH_TOKEN or CI_STATUS_GH_TOKEN is required}"
+
+case "$cmd" in
+  open)
+    pr="${2:?usage: publish-review-check open <pr-number> <head-sha>}"
+    sha="${3:?usage: publish-review-check open <pr-number> <head-sha>}"
+    id=$(gh api "repos/$GITHUB_REPOSITORY/check-runs" -X POST \
+      -f name=agent-review -f head_sha="$sha" -f status=in_progress \
+      -f "output[title]=Reviewing PR #$pr" \
+      -f "output[summary]=The pr-review bot is reviewing this commit." \
+      --jq '.id // empty')
+    [ -n "$id" ] || { echo "::error::check-run create returned no id"; exit 1; }
+    [ -z "${GITHUB_OUTPUT:-}" ] || echo "check_run_id=$id" >> "$GITHUB_OUTPUT"
+    echo "opened agent-review check run $id on $sha"
+    ;;
+  close)
+    conclusion="${2:?usage: publish-review-check close <success|failure> <title> [summary]}"
+    title="${3:?title is required}"
+    summary="${4:-}"
+    id="${CHECK_RUN_ID:-}"
+    if [ -z "$id" ]; then
+      echo "no CHECK_RUN_ID in the environment (local run) — nothing to close"
+      exit 0
+    fi
+    case "$conclusion" in
+      success|failure) ;;
+      *) echo "::error::invalid conclusion '$conclusion' (want success|failure)"; exit 1 ;;
+    esac
+    gh api "repos/$GITHUB_REPOSITORY/check-runs/$id" -X PATCH \
+      -f status=completed -f conclusion="$conclusion" \
+      -f "output[title]=$title" -f "output[summary]=$summary" --jq '.id' > /dev/null
+    echo "closed agent-review check run $id: $conclusion"
+    ;;
+  *)
+    echo "usage: publish-review-check open|close ..."; exit 1 ;;
+esac

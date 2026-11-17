@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Does this PR change .github/workflows/? GitHub forbids the review App from running on
+# workflow-file PRs, so those route to a human instead of the bot.
+#
+# Usage:   pr-touches-workflows <pr-number>
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — for the PR files API
+#          GITHUB_OUTPUT              — `wf` appended (true/false), when set
+# Output:  prints true or false.
+# Exit:    0 on a successful classification; 1 if the diff could not be read — never a silent
+#          "false", which would send a workflow PR to a bot that cannot review it and leave the
+#          human waiting on a review that never comes.
+#
+# Uses the PR's own file list (merge-base correct). A two-dot `git diff base HEAD` false-positives when
+# main has advanced with its own .github/workflows/ changes the branch lacks, which would skip the
+# review on every agent PR.
+set -euo pipefail
+
+pr="${1:?usage: pr-touches-workflows <pr-number>}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+
+# The files API, paginated: `gh pr diff` is refused for a diff over GitHub's size limit (a milestone PR).
+files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$pr/files" --jq '.[].filename') \
+  || { echo "::error::listing PR #$pr's files failed — cannot classify its scope." >&2; exit 1; }
+
+if grep -q '^\.github/workflows/' <<<"$files"; then wf=true; else wf=false; fi
+
+[ -z "${GITHUB_OUTPUT:-}" ] || echo "wf=$wf" >> "$GITHUB_OUTPUT"
+echo "$wf"
