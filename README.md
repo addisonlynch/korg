@@ -43,8 +43,8 @@ rules:
   # deletes the rest. Optional for the gates, required by the planning skills.
   testing_signal: .claude/rules/testing-signal.md
 
-# The planning layer (roadmap, to-prd, groom-backlog). Each planning skill stops when a key it
-# needs is unset. Relative paths are from the project root; a leading ~ is expanded.
+# The planning layer (roadmap, to-prd, to-tickets, groom-backlog). Each planning skill stops
+# when a key it needs is unset. Relative paths are from the project root; a leading ~ is expanded.
 linear:
   team: TID          # team key, addressed by name
   workspace: trackid # urlKey, for ticket links
@@ -52,7 +52,7 @@ planning:
   # Every label on the team and when to apply it. The project owns it; korg never edits it.
   label_taxonomy: .korg/label-taxonomy.md
   # Optional. What an unattended run must never do, and what a ticket touching a sensitive area
-  # must say. roadmap --auto and groom-backlog refuse agent-ready work it forbids.
+  # must say. roadmap --auto, to-tickets and groom-backlog refuse agent-ready work it forbids.
   hazards: .korg/ticket-hazards.md
   # Where /korg:to-prd writes PRDs. A leading ~ is expanded.
   prd_dir: ~/trackid-vault/product/prds
@@ -68,7 +68,9 @@ The planning skills talk to Linear the way the project's Linear rule in `.claude
 - `model:opus`, `model:sonnet`, `model:haiku` route the runner's model; `model:fable` marks
   interactive-only work and never coexists with `agent-ready`;
 - an agent runner that takes `agent-ready` tickets (stripping the label), works each on an
-  `agent/<ID>` branch in about two hours, and skips a ticket that already has an open PR;
+  `agent/<ID>` branch in about two hours, and skips a ticket that already has an open PR. It
+  ignores blocked-by links, so to-tickets queues only unblocked tickets and groom-backlog queues
+  the rest as their blockers land;
 - `gh`, for groom-backlog's re-queue check.
 
 `/korg:to-prd` opens each PRD with `question` / `decision` / `verdict` / `consumed_by`
@@ -83,8 +85,9 @@ frontmatter and fills `consumed_by` with the parent ticket.
 | `/korg:deslop` | Three-agent adversarial review of the diff, then the worthwhile fixes |
 | `/korg:test-review` | Test-quality review of the tests the diff touched |
 | `/korg:roadmap` | Capture an idea as a Linear issue, or `--auto` to scope and queue it for the agent runner |
-| `/korg:to-prd` | Write a PRD from the conversation, then a parent issue with one child ticket per unit of work |
-| `/korg:groom-backlog` | Triage the backlog: stale, stuck, unready, mislabelled and duplicate tickets |
+| `/korg:to-prd` | Write a PRD from the conversation, with its test seams, and a parent issue for it |
+| `/korg:to-tickets` | Break a PRD, parent issue or conversation into vertical-slice tickets with blocked-by links, after you approve the breakdown |
+| `/korg:groom-backlog` | Triage the backlog: stale, stuck, unready, mislabelled and duplicate tickets, and queue the ones whose blockers are done |
 
 Project rules in `.claude/rules/*.md` (with optional `paths:` frontmatter) and the root
 `CLAUDE.md` are enforced by deslop's rules cop.

@@ -43,7 +43,7 @@ everything it needs.
 Estimate whether this fits in one autonomous run (~2 hours). If larger (a multi-file refactor,
 a new subsystem, anything requiring design decisions), say:
 
-> "This sounds larger than one autonomous run. Want to split it into smaller tasks, or write a PRD with /korg:to-prd?"
+> "This sounds larger than one autonomous run. Want to break it down with /korg:to-tickets, or write a PRD first with /korg:to-prd?"
 
 Don't proceed until scoped to ~2 hours.
 
