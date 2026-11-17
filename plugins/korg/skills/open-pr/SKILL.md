@@ -133,18 +133,7 @@ The PR's base is always the default branch. If the branch is stacked on another 
 it onto the default branch (or merge the parent in) first: no CI job and no ruleset applies to
 another base, so a stacked PR is unreviewable and unblocked.
 
-The `gh pr create` hook checks for a sentinel file before the command runs, so the sentinel
-must be created in its own Bash call, then the create-and-cleanup in a second:
-
 ```sh
-# call 1
-touch "/tmp/open-pr-active-$(git rev-parse --abbrev-ref HEAD | tr '/' '_')"
-```
-
-```sh
-# call 2: cleanup runs on every exit, success or failure
-sentinel="/tmp/open-pr-active-$(git rev-parse --abbrev-ref HEAD | tr '/' '_')"
-trap 'rm -f "$sentinel"' EXIT
 gh pr create --base <default branch> --title "<title>" --body "<description>"
 ```
 
