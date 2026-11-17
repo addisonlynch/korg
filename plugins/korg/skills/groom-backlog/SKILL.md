@@ -1,7 +1,7 @@
 ---
 disable-model-invocation: true
 name: groom-backlog
-description: Triage the project's Linear backlog (stale, stuck, unready, mislabelled and duplicate tickets), then apply the fixes you approve.
+description: Triage the project's Linear backlog (stale, stuck, unready, mislabelled and duplicate tickets, and ones whose blockers are done), then apply the fixes you approve.
 ---
 
 # Groom Backlog
@@ -30,7 +30,8 @@ expansion. Propose cuts and clarifications, not additions.
 
 List team `linear.team`'s issues in each in-scope state, paging as needed (`--new` filters the
 result client-side). For each, capture `identifier`, `title`, `state`, `labels`, `updatedAt`,
-`createdAt`, whether the description is empty, and the parent if set. Fetch a body only when
+`createdAt`, whether the description is empty, the parent if set, and its blocked-by relations
+with each blocker's state. Fetch a body only when
 Step 3 needs it. If the scope is empty, say so and stop.
 
 ## Step 2: Hygiene pass
@@ -44,6 +45,9 @@ Flag, with each ticket as a hyperlink:
   dropping the label.
 - **Stuck in `Needs Human`**: a decision is owed. List these first; they block the agent loop.
   Recommend a concrete next action.
+- **Newly unblocked**: no `agent-ready`, has blocked-by relations, and every blocker is `Done`
+  or `Canceled`. Recommend `agent-ready` when it meets Step 4's bar; it goes under "Make ready"
+  with no drafted criteria when it already has a **Done when**.
 - **Empty body**: not actionable. Recommend sharpen or cancel.
 - **Possible duplicate**: near-identical titles or overlapping scope; search to confirm.
   Recommend merging into the older ticket.
@@ -74,7 +78,8 @@ is the failure mode, so stay quiet when unclear.
 - **Type**, only when obvious.
 - **Area**, only where it clearly fits.
 - **Routing:**
-  - `agent-ready`: scoped to ~one autonomous run (~2h) with acceptance criteria, or a `spike`.
+  - `agent-ready`: scoped to ~one autonomous run (~2h) with acceptance criteria, or a `spike`,
+    and no blocker that is not `Done` (the runner ignores blocking links).
     The dispatcher strips it on dispatch, so adding it back is a re-queue and needs the gate.
   - `Needs Shaping` (a state): a design decision is owed first; which kind goes in the body.
   - `Needs Human` (a state): the agent loop's own bail signal. Never move a ticket into it.
@@ -144,5 +149,5 @@ Confirm each change as a hyperlink, then summarize what changed and what is left
 ## Guardrails
 
 - Recommend first; mutate only after explicit approval.
-- No new feature tickets: that is `/korg:roadmap` and `/korg:to-prd`.
+- No new feature tickets: that is `/korg:roadmap`, `/korg:to-prd` and `/korg:to-tickets`.
 - No story points, sizes or sprints. "Ready" means `agent-ready` plus acceptance criteria.
