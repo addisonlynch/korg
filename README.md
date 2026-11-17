@@ -5,7 +5,11 @@ planning in Linear, with more layers (PR review, an autonomous ticket loop) to f
 
 ## Install
 
-In the project's `.claude/settings.json`:
+```
+/plugin install korg --marketplace addisonlynch/korg
+```
+
+Or, to enable it for everyone working in a project, in its `.claude/settings.json`:
 
 ```json
 {
@@ -46,8 +50,8 @@ rules:
 # The planning layer (roadmap, to-prd, to-tickets, groom-backlog). Each planning skill stops
 # when a key it needs is unset. Relative paths are from the project root; a leading ~ is expanded.
 linear:
-  team: TID          # team key, addressed by name
-  workspace: trackid # urlKey, for ticket links
+  team: ENG       # team key, addressed by name
+  workspace: acme # urlKey, for ticket links
 planning:
   # Every label on the team and when to apply it. The project owns it; korg never edits it.
   label_taxonomy: .korg/label-taxonomy.md
@@ -55,7 +59,7 @@ planning:
   # must say. roadmap --auto, to-tickets and groom-backlog refuse agent-ready work it forbids.
   hazards: .korg/ticket-hazards.md
   # Where /korg:to-prd writes PRDs. A leading ~ is expanded.
-  prd_dir: ~/trackid-vault/product/prds
+  prd_dir: ~/vault/prds
   # Optional. A plan file whose `## Now` section groom-backlog checks the queue against.
   plan: ~/vault/plan.md
 ```
@@ -91,3 +95,7 @@ frontmatter and fills `consumed_by` with the parent ticket.
 
 Project rules in `.claude/rules/*.md` (with optional `paths:` frontmatter) and the root
 `CLAUDE.md` are enforced by deslop's rules cop.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

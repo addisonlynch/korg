@@ -1,5 +1,10 @@
 {
   "name": "korg",
-  "version": "0.1.0",
-  "description": "Agent harness: commit gates, ticket planning, PR review, ticket loop, report loops."
+  "version": "0.1.1",
+  "description": "Agent harness for Claude Code: quality gates on every commit and ticket planning in Linear.",
+  "author": {
+    "name": "addisonlynch"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/addisonlynch/korg"
 }
