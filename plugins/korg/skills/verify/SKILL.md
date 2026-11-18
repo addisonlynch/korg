@@ -10,13 +10,13 @@ one. If the file does not exist, stop: the project has not configured korg.
 
 ## Steps
 
-1. Run `commands.lint`.
-
-2. Run `commands.test` once, following `${CLAUDE_SKILL_DIR}/../commit/SKILL.md` § Running
+1. If `korg-config commands.test` prints anything, stop as `/korg:commit` § Pre-flight does: the key
+   was renamed to `commands.test_scoped`.
+2. Run `commands.lint`.
+3. Run `commands.test_scoped` once, following `${CLAUDE_SKILL_DIR}/../commit/SKILL.md` § Running
    tests: it selects the tests the uncommitted diff calls for, not the full suite.
-
-3. Report results. On a failure, read the failures from the run's log, fix, and re-run
-   `commands.test`.
+4. Report results. On a failure, read the failures from the run's log, fix, and re-run
+   `commands.test_scoped`.
 
 ## Important
 

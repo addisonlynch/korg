@@ -47,7 +47,7 @@ Draft a **PR title** (under 70 chars). If the change references a `<team>-N` tic
 `[<team>-N]`: the review bot and the agent runner read the ticket id from it.
 
 Draft a **PR description**. Fill the two `Automated checks` lines with the literal
-`commands.lint` and `commands.test` values. Omit `## Tickets resolved` when no ticket is
+`commands.lint` and `commands.test_scoped` values. Omit `## Tickets resolved` when no ticket is
 referenced, and `## Evidence` unless the evidence rule below applies.
 
 ```markdown
@@ -66,7 +66,7 @@ referenced, and `## Evidence` unless the evidence rule below applies.
 ## Automated checks
 
 - [x] `<commands.lint>` passes
-- [x] `<commands.test>` passes (the tests this diff calls for; CI runs the full suite)
+- [x] `<commands.test_scoped>` passes (the tests this diff calls for; CI runs the full suite)
 
 ## Manual testing
 

@@ -28,8 +28,11 @@ an agent's commit before it is pushed, so the gates are the review.
 ## Pre-flight
 
 1. Assert the current branch is not the default branch. If it is, stop.
-2. `git status --porcelain`: if nothing to commit, stop and say so.
-3. Show the scope: `git diff --stat HEAD`
+2. If `korg-config commands.test` prints anything, stop: that key was renamed to
+   `commands.test_scoped` (the tests the uncommitted diff calls for; CI runs the full suite).
+   Rename it in `.korg.yml`, pointing at the project's scoped selector, and run again.
+3. `git status --porcelain`: if nothing to commit, stop and say so.
+4. Show the scope: `git diff --stat HEAD`
 
 ## Gate order
 
@@ -43,13 +46,13 @@ Invariants:
   edit.
 - Reviewers never trigger a test suite. A gate that applied fixes is followed by lint only.
 - The authoritative run reflects the final tree. Any edit after it earns exactly one re-run
-  of `commands.test`.
+  of `commands.test_scoped`.
 - Recovery is bounded: one repair round, then stop and report.
 - A failure the diff did not cause is not repaired.
 
 ## Running tests
 
-`commands.test` is the scoped selection: the tests the uncommitted diff calls for. The full
+`commands.test_scoped` is the scoped selection: the tests the uncommitted diff calls for. The full
 suite is for a person and for CI. No gate runs it, and neither does an agent implementing a
 change; only the project's selector falls back to it, for a path it cannot place.
 Whole-repository validation belongs to CI.
@@ -100,7 +103,7 @@ it forces is covered by that run.
 
 ## Gate 5: Scoped regression run
 
-Run `commands.test` **once**, on the final tree. Green → continue.
+Run `commands.test_scoped` **once**, on the final tree. Green → continue.
 
 Red → one repair round, then stop and report whatever still fails. Read the failures from the
 run's log (§ Running tests). For each failing test, decide its provenance before touching
@@ -120,8 +123,8 @@ anything:
    record it for the PR description and continue.
    When `commands.test_one` is unset, provenance cannot be checked: stop and report.
 2. **Test repair.** The fault is in a test file this change added or edited. Fix the test, then
-   run `commands.test`.
-3. **Production repair.** Otherwise. Fix the code, re-run Gate 1, then run `commands.test`
+   run `commands.test_scoped`.
+3. **Production repair.** Otherwise. Fix the code, re-run Gate 1, then run `commands.test_scoped`
    again.
 
 ## Commit and push
