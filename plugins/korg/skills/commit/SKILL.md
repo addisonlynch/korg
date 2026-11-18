@@ -46,7 +46,18 @@ Invariants:
   of `commands.test`.
 - Recovery is bounded: one repair round, then stop and report.
 - A failure the diff did not cause is not repaired.
-- Whole-repository validation belongs to CI.
+
+## Running tests
+
+`commands.test` is the scoped selection: the tests the uncommitted diff calls for. The full
+suite is for a person and for CI. No gate runs it, and neither does an agent implementing a
+change; only the project's selector falls back to it, for a path it cannot place.
+Whole-repository validation belongs to CI.
+
+- While implementing, run only the test files being written or edited.
+- The scoped regression run happens once per commit, on the final tree (Gate 5).
+- Write a run's full output to a log and read the log. Never re-run a suite to see output it
+  already wrote.
 
 ## Gate 1: Lint
 
@@ -92,8 +103,8 @@ it forces is covered by that run.
 Run `commands.test` **once**, on the final tree. Green → continue.
 
 Red → one repair round, then stop and report whatever still fails. Read the failures from the
-run's output, or from the log it names; never re-run a suite to see output again. For each
-failing test, decide its provenance before touching anything:
+run's log (§ Running tests). For each failing test, decide its provenance before touching
+anything:
 
 1. **Not yours.** When `commands.test_one` is set, re-run just that test against the merge-base
    tree. Substitute `{test}` with the test id and `{root}` with the main checkout's root, so the

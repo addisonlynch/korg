@@ -30,7 +30,8 @@ Parse `$ARGUMENTS`:
 ## Phase 1: Commit
 
 Run `/korg:commit` (passing `--quick` if provided). It runs the quality gates, commits, and
-pushes the branch.
+pushes the branch. Its scoped test run is the only one this skill makes; no phase runs the full
+suite (`${CLAUDE_SKILL_DIR}/../commit/SKILL.md` § Running tests).
 
 If `/korg:commit` stops for any reason, stop here too.
 

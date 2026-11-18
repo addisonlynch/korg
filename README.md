@@ -33,8 +33,8 @@ the project owns how its stacks are linted and tested.
 commands:
   # Lint the project. Non-zero on failure.
   lint: make lint
-  # Run the tests the uncommitted diff calls for. On failure the gates read its output.
-  test: make test
+  # Run the tests the uncommitted diff calls for, not the full suite (see below).
+  test: make test-scoped
   # Optional. Run one test id. `{test}` is the id, `{root}` the main checkout's root, so the
   # command can run inside a temporary worktree against dependencies installed in the checkout.
   # `{root}` is substituted as-is: quote it, since a checkout path may contain spaces.
@@ -81,6 +81,14 @@ evidence:
       paths: ["db/migrations/**"]
       need: post-migrate assertion output
 ```
+
+`commands.test` is a diff-scoped selection, and every gate relies on that: `/korg:commit` and
+`/korg:verify` run it once per invocation, and full validation is CI's. Pointing it at the full
+suite makes every commit run the whole suite on top of CI's. The selector is project-specific: a
+`test-scoped` target maps the uncommitted changes (`git diff --name-only HEAD` plus untracked
+files) to the test files that cover them, and runs the full suite when a changed path has no
+mapping or is cross-cutting (migrations, shared fixtures, dependency files). How the gates and an
+implementing agent run tests is in `/korg:commit` § Running tests.
 
 The planning skills talk to Linear the way the project's Linear rule in `.claude/rules/` says
 (including the italic filer line a non-interactive job opens a ticket with), and assume:

@@ -12,10 +12,11 @@ one. If the file does not exist, stop: the project has not configured korg.
 
 1. Run `commands.lint`.
 
-2. Run `commands.test` once. It selects the tests the uncommitted diff calls for.
+2. Run `commands.test` once, following `${CLAUDE_SKILL_DIR}/../commit/SKILL.md` § Running
+   tests: it selects the tests the uncommitted diff calls for, not the full suite.
 
-3. Report results. On a failure, read the failures from the run's output, or from the log it
-   names, fix, and re-run `commands.test`.
+3. Report results. On a failure, read the failures from the run's log, fix, and re-run
+   `commands.test`.
 
 ## Important
 
@@ -25,4 +26,3 @@ one. If the file does not exist, stop: the project has not configured korg.
 - Fix lint errors before test failures: they are faster to resolve and may cause the test
   failures.
 - If tests fail, find the root cause rather than making the test pass.
-- Never re-run a suite to see its output again.
