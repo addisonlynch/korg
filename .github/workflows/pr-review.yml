@@ -106,11 +106,11 @@ jobs:
       group: korg-review-${{ github.event.pull_request.number }}
       cancel-in-progress: true
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 0
       # korg itself at the ref the caller pinned, never the PR's code.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
@@ -218,7 +218,7 @@ jobs:
             Review this PR by invoking the /korg:pr-review skill and following its instructions.
       - name: Upload execution log
         if: "!cancelled() && steps.scope.outputs.wf == 'false'"
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: execution-log-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ steps.review.outputs.execution_file }}

@@ -26,7 +26,7 @@ jobs:
     steps:
       # The predicate comes from korg at the ref the caller pinned, never from the PR: a branch
       # that edited it to `exit 0` would otherwise pass its own gate.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}

@@ -33,7 +33,10 @@ esac
 # A failed read yields an empty title, which resolve-ticket-model turns into the sonnet default
 # rather than an error: picking the wrong model is recoverable, failing the round is not.
 title=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-  "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$pr" | jq -r '.title') || title=""
+  "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$pr" | jq -r '.title') || {
+  echo "::warning::could not read PR #$pr's title; resolving the author model to the sonnet default" >&2
+  title=""
+}
 
 author_model=$(resolve-ticket-model "$title")
 

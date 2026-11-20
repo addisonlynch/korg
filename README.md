@@ -121,6 +121,10 @@ frontmatter and fills `consumed_by` with the parent ticket.
 Project rules in `.claude/rules/*.md` (with optional `paths:` frontmatter) and the root
 `CLAUDE.md` are enforced by deslop's rules cop.
 
+## Contributing
+
+How korg is built: [CLAUDE.md](CLAUDE.md).
+
 ## License
 
 MIT. See [LICENSE](LICENSE).
