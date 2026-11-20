@@ -1,0 +1,131 @@
+name: korg respond round
+description: >-
+  Second half of a respond run, after the project has set up its environment: one fix round by
+  /korg:agent-ticket --ci-respond, then the pushless-round notice, the log and the cost comment.
+inputs:
+  pr:
+    description: The respond-gate `pr` output.
+    required: true
+  ref:
+    description: The respond-gate `ref` output.
+    required: true
+  round:
+    description: The respond-gate `round` output.
+    required: true
+  claude_code_oauth_token:
+    description: Claude Code OAuth token for the fix round.
+    required: true
+  github_token:
+    description: Token for the PR reads, the round notice and the cost comment.
+    default: ${{ github.token }}
+  linear_client_id:
+    description: Linear OAuth app client id. Without it the round runs on the default model with no ticket context.
+    default: ''
+  linear_client_secret:
+    description: Linear OAuth app client secret.
+    default: ''
+  claude_executable:
+    description: >-
+      Pre-installed Claude Code binary. Set it on self-hosted runners whose jobs share a $HOME:
+      concurrent per-job installs there collide.
+    default: ''
+runs:
+  using: composite
+  steps:
+    # This action's own korg plugin, resolved in a `run:` step: inside the nested action's `with:`
+    # below, `github.action_path` is not reliably this action's path.
+    - name: Locate the korg plugin
+      id: korg
+      shell: bash
+      run: echo "plugin_dir=$(cd "$GITHUB_ACTION_PATH/../../../plugins/korg" && pwd)" >> "$GITHUB_OUTPUT"
+
+    - name: Mint Linear agent token
+      if: inputs.linear_client_id != ''
+      continue-on-error: true
+      shell: bash
+      env:
+        LINEAR_CLIENT_ID: ${{ inputs.linear_client_id }}
+        LINEAR_CLIENT_SECRET: ${{ inputs.linear_client_secret }}
+      run: linear-agent-token
+
+    - name: Resolve the round's model
+      id: model
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR: ${{ inputs.pr }}
+      run: resolve-pr-model "$PR" respond
+
+    # Captured before the record commit moves the local head; respond-flag-pushless compares
+    # the remote head against it.
+    - name: Record the loop round
+      id: prehead
+      if: inputs.round != '0'
+      shell: bash
+      env:
+        ROUND: ${{ inputs.round }}
+      run: |
+        echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+        review-loop-record "$ROUND"
+
+    - uses: anthropics/claude-code-action@6070f08d2b4766348e0acded463606a7b176417b # v1.0.279
+      id: respond
+      with:
+        claude_code_oauth_token: ${{ inputs.claude_code_oauth_token }}
+        # The action's untrusted-PR check judges the PR author, and an agent PR's author is the
+        # Claude app, which it cannot confirm as a collaborator. Trust comes from the head branch
+        # instead: respond-gate admits only same-repo heads, which only a writer can push.
+        restrict_untrusted_prs: "false"
+        path_to_claude_code_executable: ${{ inputs.claude_executable }}
+        # The loop trigger's actor is the review workflow's bot; the mention path is gated on the
+        # human reviewer by the caller's job `if`.
+        allowed_bots: "*"
+        # `--setting-sources project,local` drops the user-level settings file, which a shared
+        # self-hosted $HOME can carry from another job (the reviewer's deny list).
+        # enableAllProjectMcpServers is set inline so the Linear MCP server still loads.
+        claude_args: >-
+          --dangerously-skip-permissions --model ${{ steps.model.outputs.model }} --max-turns 200
+          --setting-sources project,local
+          --plugin-dir ${{ steps.korg.outputs.plugin_dir }}
+          --settings '{"enableAllProjectMcpServers":true}'
+        show_full_output: true
+        prompt: |
+          PR NUMBER: ${{ inputs.pr }}
+          REPO: ${{ github.repository }}
+
+          ${{ inputs.round != '0' && format('The agent-review check on this PR is red with findings. This is autonomous fix round {0}; the goal is to make the agent-review check green.', inputs.round) || 'A human mentioned @claude on this PR. Their comment follows; when it asks for something specific, do only that. Before you stop, post your answer to them on the PR with gh pr comment.' }}
+          ${{ inputs.round == '0' && (github.event.comment.body || github.event.review.body) || '' }}
+
+          Run /korg:agent-ticket --ci-respond on this PR. This is ONE round: do not loop and do not
+          re-review; your push re-runs the review, and the workflow enforces the round cap.
+
+    - name: Flag a pushless round
+      if: inputs.round != '0'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR: ${{ inputs.pr }}
+        REF: ${{ inputs.ref }}
+        BEFORE: ${{ steps.prehead.outputs.sha }}
+        ROUND: ${{ inputs.round }}
+      run: respond-flag-pushless "$PR" "$REF" "$BEFORE" "$ROUND"
+
+    - name: Upload execution log
+      if: always() && steps.respond.outputs.execution_file != ''
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      with:
+        name: execution-log-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ steps.respond.outputs.execution_file }}
+        retention-days: 30
+
+    - name: Post run cost comment
+      if: always()
+      continue-on-error: true
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR: ${{ inputs.pr }}
+        MODEL: ${{ steps.model.outputs.model }}
+        EXECUTION_FILE: ${{ steps.respond.outputs.execution_file }}
+        PHASE: ${{ inputs.round != '0' && format('responder round {0}', inputs.round) || 'responder' }}
+      run: post-cost-comment "$PR" "$PHASE" "$MODEL" "$EXECUTION_FILE"

@@ -11,7 +11,8 @@ loop. `README.md` is the user-facing manual; this file is how korg itself is bui
   skills and by `<korg checkout>/plugins/korg/bin/<name>` from workflow steps.
 - `plugins/korg/hooks/hooks.json`: plugin hooks.
 - `.github/workflows/pr-review.yml`, `base-guard.yml`: reusable workflows projects call;
-  `ci.yml`: korg's own CI. `docs/callers.md`: what a project adds to call them.
+  `ci.yml`: korg's own CI. `.github/actions/`: composite actions for jobs that need the project's
+  environment, which the project's own job calls. `docs/callers.md`: what a project adds.
 - `tests/`: pytest for `bin/`, with stubbed `gh`/`curl`/`korg-config` on PATH.
 
 ## Principles

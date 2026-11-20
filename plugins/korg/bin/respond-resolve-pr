@@ -1,0 +1,59 @@
+#!/usr/bin/env bash
+# Resolve the PR a respond run acts on, and refuse a PR whose head lives on a fork: the run holds
+# a write token and executes the checkout's code, so a fork's code must never reach it.
+#
+# Refuses a public repository outright: there anyone can leave review comments, and the fix round
+# acts on review comments with write access and secrets. Only collaborators can comment on a
+# private repository.
+#
+# Usage:   respond-resolve-pr
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — required
+#          EVENT_NAME                  — the triggering event (`workflow_run` or a PR event)
+#          HEAD_BRANCH                 — workflow_run: the head branch the review ran on
+#          EVENT_PR                    — any other event: the PR number from the payload
+#          REPO_PRIVATE                — `true` when the repository is private
+#          GITHUB_OUTPUT               — `number` and `ref` appended, when set
+# Exit:    0 resolved, or a workflow_run whose branch has no open PR any more (merged or closed
+#          while the trigger queued; `number` stays empty); 1 on a public repository, an API
+#          failure or a fork head.
+set -euo pipefail
+
+: "${GH_TOKEN:?GH_TOKEN is required}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+: "${EVENT_NAME:?EVENT_NAME is required}"
+if [ "${REPO_PRIVATE:-}" != true ]; then
+  echo "::error::$GITHUB_REPOSITORY is not private: anyone can comment on its PRs, and the fix round acts on PR comments with write access. korg's respond loop runs only on private repositories."
+  exit 1
+fi
+
+api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+get() { curl -sSf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" "$@"; }
+
+if [ "$EVENT_NAME" = workflow_run ]; then
+  : "${HEAD_BRANCH:?HEAD_BRANCH is required for workflow_run}"
+  pulls=$(get --get --data-urlencode "head=${GITHUB_REPOSITORY%%/*}:$HEAD_BRANCH" \
+    --data-urlencode state=open "$api/pulls") \
+    || { echo "::error::could not list open PRs for $HEAD_BRANCH"; exit 1; }
+  pr_json=$(jq -c '.[0] // empty' <<<"$pulls")
+  if [ -z "$pr_json" ]; then
+    echo "::notice::no open PR for $HEAD_BRANCH — merged or closed while the trigger queued; nothing to do."
+    exit 0
+  fi
+else
+  : "${EVENT_PR:?EVENT_PR is required}"
+  pr_json=$(get "$api/pulls/$EVENT_PR") || { echo "::error::could not read PR #$EVENT_PR"; exit 1; }
+fi
+
+number=$(jq -r '.number' <<<"$pr_json")
+ref=$(jq -r '.head.ref' <<<"$pr_json")
+head_repo=$(jq -r '.head.repo.full_name // empty' <<<"$pr_json")
+if [ "$head_repo" != "$GITHUB_REPOSITORY" ]; then
+  echo "::error::PR #$number's head is on '${head_repo:-a deleted fork}', not $GITHUB_REPOSITORY — refusing to run on a fork."
+  exit 1
+fi
+
+if [ -n "${GITHUB_OUTPUT:-}" ]; then
+  echo "number=$number" >> "$GITHUB_OUTPUT"
+  echo "ref=$ref" >> "$GITHUB_OUTPUT"
+fi
+echo "PR #$number on $ref"

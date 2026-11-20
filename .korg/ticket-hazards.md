@@ -5,9 +5,10 @@ review, gate and dispatch agents in every consuming project, so an agent must no
 judge.
 
 - **Review and dispatch machinery**: refuse an unattended task that changes
-  `.github/workflows/`, `plugins/korg/hooks/`, `linear-agent-token`, the scripts that publish,
-  finalize or route the `agent-review` check (`publish-review-check`, `review-check-finalize`,
-  `verify-review-submitted`, `pr-touches-workflows`), or what this repo's review judges by
+  `.github/workflows/`, `.github/actions/`, `plugins/korg/hooks/`, `linear-agent-token`, the
+  scripts that publish, finalize or route the `agent-review` check (`publish-review-check`,
+  `review-check-finalize`, `verify-review-submitted`, `pr-touches-workflows`) or decide a fix
+  round (`review-loop-gate`, `review-loop-escalate`), or what this repo's review judges by
   (`.korg.yml`, `.korg/review-checklist.md`, `.claude/rules/testing-signal.md`). These go
   through a human-driven PR.
 - **Releases**: refuse a task that bumps the version, creates a tag or edits a consuming

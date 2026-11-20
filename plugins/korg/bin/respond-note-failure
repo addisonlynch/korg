@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Say on the PR that a respond run failed or was cancelled, so a round never evaporates
+# silently.
+#
+# Usage:   respond-note-failure
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — required
+#          PR                          — the PR number, when the run resolved one
+#          HEAD_BRANCH                 — otherwise, the workflow_run head branch to look it up by
+#          ACTION                      — the gate's decision, when it got that far
+# Exit:    0 posted, or no PR to post on; 1 when the post fails.
+#
+# curl, not gh: this also reports failures from before anything put gh on PATH.
+set -euo pipefail
+
+: "${GH_TOKEN:?GH_TOKEN is required}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+
+api="https://api.github.com/repos/$GITHUB_REPOSITORY"
+hdr=(-H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json")
+
+n="${PR:-}"
+if [ -z "$n" ] && [ -n "${HEAD_BRANCH:-}" ]; then
+  n=$(curl -sSf "${hdr[@]}" --get --data-urlencode "head=${GITHUB_REPOSITORY%%/*}:$HEAD_BRANCH" \
+    --data-urlencode state=open "$api/pulls" | jq -r '.[0].number // empty')
+fi
+[ -n "$n" ] || { echo "no PR to note the failure on"; exit 0; }
+
+if [ "${ACTION:-}" = escalate ]; then
+  body="The review loop's escalation failed partway (see the workflow logs): the round budget is spent, but Linear may not show Needs Human. Finish the surrender by hand: set the ticket to Needs Human and read the unresolved review threads here."
+else
+  body="The respond run did not complete (see the workflow logs). No fix was pushed for this round; @claude on the PR to retry once the cause is addressed."
+fi
+curl -sSf -X POST "${hdr[@]}" "$api/issues/$n/comments" -d "$(jq -n --arg b "$body" '{body: $b}')" > /dev/null
+echo "noted the failure on PR #$n"

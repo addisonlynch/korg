@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# After a loop round: if the branch head did not move, the round pushed nothing, so no new review
+# will run and the loop halts. Say so on the PR, once per head, with the `pushless-round:<sha>`
+# marker review-loop-gate skips on.
+#
+# Usage:   respond-flag-pushless <pr-number> <branch> <head-before-the-round> <round>
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — required
+# Exit:    0 the head moved, or the notice is on the PR; 1 when the head is unreadable.
+#
+# The head is read over the REST API with the job token: the agent's own credential is revoked
+# when its step ends, so `git ls-remote` fails here.
+set -euo pipefail
+
+pr="${1:?usage: respond-flag-pushless <pr> <branch> <before> <round>}"
+branch="${2:?usage: respond-flag-pushless <pr> <branch> <before> <round>}"
+before="${3:?usage: respond-flag-pushless <pr> <branch> <before> <round>}"
+round="${4:?usage: respond-flag-pushless <pr> <branch> <before> <round>}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+: "${GH_TOKEN:?GH_TOKEN is required}"
+
+now=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/$branch" --jq '.object.sha') \
+  || { echo "::error::could not read $branch's head — cannot tell whether round $round pushed."; exit 1; }
+if [ "$now" != "$before" ]; then
+  echo "round $round pushed $now"
+  exit 0
+fi
+
+pr-comment-once "$pr" "pushless-round:$now" \
+  "⚠️ Review loop round $round ended without pushing a fix, so the loop halts here: the agent-review check is red for a reason a fix round could not change (see the check summary). A human needs to act; the round's budget was not consumed."

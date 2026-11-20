@@ -87,6 +87,12 @@ _HERMETIC = (
     "LINEAR_API_KEY",
     "LINEAR_CLIENT_ID",
     "LINEAR_CLIENT_SECRET",
+    "PR",
+    "ACTION",
+    "HEAD_BRANCH",
+    "EVENT_NAME",
+    "EVENT_PR",
+    "REPO_PRIVATE",
 )
 
 
@@ -105,8 +111,8 @@ def outputs(path: Path) -> dict[str, str]:
     return {k: v for k, _, v in (line.partition("=") for line in path.read_text().splitlines())}
 
 
-def gh_calls(stubs: Path) -> list[str]:
-    path = stubs / "gh_argv"
+def gh_calls(stubs: Path, name: str = "gh_argv") -> list[str]:
+    path = stubs / name
     if not path.exists():
         return []
     return [c.replace("\n", " ").strip() for c in path.read_text().split("---") if c.strip()]

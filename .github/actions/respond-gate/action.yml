@@ -1,0 +1,92 @@
+name: korg respond gate
+description: >-
+  First half of a respond run. Resolves the PR (refusing fork heads), checks it out, and decides
+  the run's action: a fix round, escalation to a human (done here), or nothing.
+inputs:
+  github_token:
+    description: Token for the PR reads, the checkout and the escalation's PR comment.
+    default: ${{ github.token }}
+  linear_client_id:
+    description: Linear OAuth app client id. Escalation needs it.
+    default: ''
+  linear_client_secret:
+    description: Linear OAuth app client secret. Escalation needs it.
+    default: ''
+outputs:
+  pr:
+    description: The PR number; empty when the workflow_run branch has no open PR.
+    value: ${{ steps.pr.outputs.number }}
+  ref:
+    description: The PR's head branch.
+    value: ${{ steps.pr.outputs.ref }}
+  action:
+    description: "`round`, `escalate` or `skip`; empty when there is no PR."
+    value: ${{ steps.gate.outputs.action }}
+  round:
+    description: The loop round number on action=round; `0` for a human-triggered round.
+    value: ${{ steps.gate.outputs.round }}
+runs:
+  using: composite
+  steps:
+    # korg's scripts run from this action's own ref, never from the PR under review.
+    - name: Put korg's scripts on PATH
+      shell: bash
+      run: echo "$GITHUB_ACTION_PATH/../../../plugins/korg/bin" >> "$GITHUB_PATH"
+
+    - name: Resolve the PR
+      id: pr
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        EVENT_NAME: ${{ github.event_name }}
+        HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        EVENT_PR: ${{ github.event.issue.number || github.event.pull_request.number }}
+        REPO_PRIVATE: ${{ github.event.repository.private }}
+      run: respond-resolve-pr
+
+    - if: steps.pr.outputs.number != ''
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        ref: ${{ steps.pr.outputs.ref }}
+        token: ${{ inputs.github_token }}
+        fetch-depth: 0
+
+    # korg's scripts read .korg.yml from the checkout, and a branch cut before the project added
+    # it lacks one. The exclude keeps it out of the round's commit.
+    - name: Supply .korg.yml to an older branch
+      if: steps.pr.outputs.number != ''
+      shell: bash
+      env:
+        DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+      run: |
+        if [ ! -f .korg.yml ]; then
+          git show "origin/$DEFAULT_BRANCH:.korg.yml" > .korg.yml
+          echo .korg.yml >> .git/info/exclude
+        fi
+
+    - name: Gate the round
+      id: gate
+      if: steps.pr.outputs.number != ''
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR: ${{ steps.pr.outputs.number }}
+        SOURCE: ${{ github.event_name == 'workflow_run' && 'loop' || 'human' }}
+      run: review-loop-gate "$PR" "$SOURCE"
+
+    # Not best-effort: a surrender that cannot write to Linear must red the job.
+    - name: Mint Linear agent token
+      if: steps.gate.outputs.action == 'escalate'
+      shell: bash
+      env:
+        LINEAR_CLIENT_ID: ${{ inputs.linear_client_id }}
+        LINEAR_CLIENT_SECRET: ${{ inputs.linear_client_secret }}
+      run: linear-agent-token
+
+    - name: Escalate to a human
+      if: steps.gate.outputs.action == 'escalate'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github_token }}
+        PR: ${{ steps.pr.outputs.number }}
+      run: review-loop-escalate "$PR"
