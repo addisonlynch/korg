@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# Surrender: escalate a PR whose review loop spent its fix-round budget without going green.
+#
+# Usage:   review-loop-escalate <pr-number>
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — for the findings read and the PR comment
+#          LINEAR_API_KEY              — for the Linear writes
+# Config:  linear.team, linear.owner   — the ticket prefix and the Linear user to assign
+# Exit:    0 the full surrender landed (Linear state/assignee/comment + PR comment);
+#          1 anything failed — escalation must be loud, a PR must never wedge silently.
+#
+# Dedupes per head SHA: a later head that is still red escalates again, which is the moment to
+# re-notify. Every Linear write lands before the PR comment, so a failed surrender leaves no
+# PR record claiming it happened, and a rerun on the same head is not suppressed.
+set -euo pipefail
+
+pr="${1:?usage: review-loop-escalate <pr-number>}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+: "${GH_TOKEN:?GH_TOKEN is required}"
+: "${LINEAR_API_KEY:?LINEAR_API_KEY is required}"
+team=$(korg-config linear.team)
+[ -n "$team" ] || { echo "::error::linear.team is not set in .korg.yml"; exit 1; }
+# Resolved by NAME, never from `viewer`: CI holds the Linear app-actor token, so `viewer` is the
+# app, not the human — assigning it would move the state while notifying nobody.
+owner_name=$(korg-config linear.owner)
+[ -n "$owner_name" ] || { echo "::error::linear.owner is not set in .korg.yml — nobody to escalate to"; exit 1; }
+
+linear() {  # linear <query> <variables-json>
+  curl -sS --fail --max-time 20 -X POST https://api.linear.app/graphql \
+    -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" \
+    -d "$(jq -nc --arg q "$1" --argjson v "$2" '{query: $q, variables: $v}')"
+}
+
+view=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json headRefName,headRefOid)
+head_ref=$(jq -r '.headRefName' <<<"$view")
+head_sha=$(jq -r '.headRefOid' <<<"$view")
+
+# Re-verify the verdict against the CURRENT head before surrendering. review-loop-gate
+# read the check a step earlier in this same job, and a clean verdict can land inside that
+# window. The window is small; the cost of surrendering into it is a false Needs Human on a
+# green PR, so it gets re-read here.
+check=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head_sha/check-runs?check_name=agent-review" \
+  --jq '.check_runs | max_by(.id) // empty') \
+  || { echo "::error::could not re-read the agent-review check for $head_sha"; exit 1; }
+if [ -z "$check" ]; then
+  echo "::notice::no agent-review check on $head_sha — not escalating."
+  exit 0
+fi
+skip=$(jq -r 'if .status != "completed" then "a review of this head is still running"
+              elif .external_id == "forced" then "the review never published a verdict, so there are no findings to surrender"
+              elif .conclusion != "failure" then "the current verdict is \(.conclusion)"
+              else "" end' <<<"$check")
+if [ -n "$skip" ]; then
+  echo "::notice::not escalating $head_sha: $skip"
+  exit 0
+fi
+# grep, not suffix-stripping: a branch may carry a slug suffix (agent/<TEAM>-42-fix-thing).
+ticket=$(grep -oE "$team-[0-9]+" <<<"$head_ref" | head -1) || true
+[ -n "$ticket" ] || { echo "::error::head branch '$head_ref' carries no $team-N ticket — nothing to escalate to."; exit 1; }
+
+repo_owner="${GITHUB_REPOSITORY%%/*}"
+repo_name="${GITHUB_REPOSITORY##*/}"
+pr_url="https://github.com/$GITHUB_REPOSITORY/pull/$pr"
+
+# 100 covers any real PR (the reviewer caps inline comments at ~15/round).
+# shellcheck disable=SC2016  # GraphQL variables, not shell expansions
+findings=$(gh api graphql \
+  -f query='query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) {
+    pullRequest(number: $n) { reviewThreads(first: 100) { nodes {
+      isResolved comments(first: 1) { nodes { body path line } } } } } } }' \
+  -f o="$repo_owner" -f r="$repo_name" -F n="$pr" \
+  --jq '[.data.repository.pullRequest.reviewThreads.nodes[]
+         | select(.isResolved == false) | .comments.nodes[0]
+         | "- `\(.path):\(.line // "?")` — \(.body)"] | join("\n")')
+[ -n "$findings" ] || findings="(no unresolved review threads — see the agent-review check summary on $pr_url)"
+
+# Stay far under GitHub's 65536-char comment limit (Linear's is the same order): a runaway
+# review round must not make the surrender itself fail on body size.
+if [ "${#findings}" -gt 30000 ]; then
+  findings="${findings:0:30000}
+
+…truncated — the remaining unresolved threads are on the PR itself: $pr_url"
+fi
+
+summary="The autonomous review loop spent its fix rounds on this PR and the \`agent-review\` check is still red. Surrendering: ticket → Needs Human, assigned to the owner.
+
+**Unresolved findings after the final round:**
+$findings"
+marker="review-loop-escalated:$head_sha"
+
+# One Linear read. The comments ride along so the on-ticket record below can dedupe on the head
+# marker: the state writes are idempotent, but commentCreate is not.
+# shellcheck disable=SC2016
+read_q='query($id: String!, $owner: String!) { issue(id: $id) {
+  id labels { nodes { id name } } team { states { nodes { id name } } }
+  comments(first: 100) { nodes { body } }
+} users(filter: { name: { eq: $owner } }) { nodes { id } } }'
+issue_resp=$(linear "$read_q" "$(jq -nc --arg id "$ticket" --arg owner "$owner_name" '{id: $id, owner: $owner}')")
+issue_id=$(jq -re '.data.issue.id' <<<"$issue_resp") \
+  || { echo "::error::could not fetch $ticket from Linear: $(jq -c '.errors // empty' <<<"$issue_resp")"; exit 1; }
+state_id=$(jq -re '.data.issue.team.states.nodes[] | select(.name == "Needs Human") | .id' <<<"$issue_resp") \
+  || { echo "::error::team has no 'Needs Human' state — cannot surrender $ticket."; exit 1; }
+owner_matches=$(jq -r '.data.users.nodes | length' <<<"$issue_resp")
+case "$owner_matches" in
+  0) echo "::error::no Linear user named '$owner_name' — cannot assign $ticket, so nobody would be notified."; exit 1 ;;
+  1) ;;
+  *) echo "::error::$owner_matches Linear users named '$owner_name' — cannot pick one to assign $ticket."; exit 1 ;;
+esac
+owner_id=$(jq -re '.data.users.nodes[0].id' <<<"$issue_resp")
+ready_label_id=$(jq -r '.data.issue.labels.nodes[] | select(.name == "agent-ready") | .id' <<<"$issue_resp")
+
+# State + assignee in one mutation. `success` alone is not proof the assignment landed — it can
+# come back true while the assignee stays null — so read the assignee back.
+# shellcheck disable=SC2016
+update_q='mutation($id: String!, $state: String!, $assignee: String!) {
+  issueUpdate(id: $id, input: { stateId: $state, assigneeId: $assignee }) {
+    success issue { assignee { id } } } }'
+resp=$(linear "$update_q" "$(jq -nc --arg id "$issue_id" --arg state "$state_id" --arg assignee "$owner_id" \
+  '{id: $id, state: $state, assignee: $assignee}')")
+jq -e '.data.issueUpdate.success == true' <<<"$resp" > /dev/null \
+  || { echo "::error::issueUpdate failed for $ticket: $(jq -c '.errors // .' <<<"$resp")"; exit 1; }
+jq -e --arg a "$owner_id" '.data.issueUpdate.issue.assignee.id == $a' <<<"$resp" > /dev/null \
+  || { echo "::error::$ticket moved to Needs Human but the assignee did not stick — $owner_name was not notified."; exit 1; }
+
+# A Needs Human ticket must not re-dispatch.
+if [ -n "$ready_label_id" ]; then
+  # shellcheck disable=SC2016
+  strip_q='mutation($id: String!, $label: String!) { issueRemoveLabel(id: $id, labelId: $label) { success } }'
+  resp=$(linear "$strip_q" "$(jq -nc --arg id "$issue_id" --arg label "$ready_label_id" '{id: $id, label: $label}')")
+  jq -e '.data.issueRemoveLabel.success == true' <<<"$resp" > /dev/null \
+    || { echo "::error::agent-ready strip failed for $ticket: $(jq -c '.errors // .' <<<"$resp")"; exit 1; }
+fi
+
+# Bounded at the 100 comments the read fetched: past that the guard fails open and the ticket
+# gets a duplicate comment; not worth a second round trip to prevent.
+if jq -e --arg m "$marker" '[.data.issue.comments.nodes[] | select(.body | contains($m))] | length > 0' \
+  <<<"$issue_resp" > /dev/null; then
+  echo "$ticket already carries the escalation record for $head_sha — not commenting again."
+else
+  # shellcheck disable=SC2016
+  comment_q='mutation($id: String!, $body: String!) { commentCreate(input: { issueId: $id, body: $body }) { success } }'
+  resp=$(linear "$comment_q" "$(jq -nc --arg id "$issue_id" --arg body "⛔ Review loop escalated on $pr_url
+
+$summary
+
+<!-- $marker -->" '{id: $id, body: $body}')")
+  jq -e '.data.commentCreate.success == true' <<<"$resp" > /dev/null \
+    || { echo "::error::escalation comment failed for $ticket: $(jq -c '.errors // .' <<<"$resp")"; exit 1; }
+fi
+
+# Duplicate dispatches are serialized, not deduped, so the PR record is once per head too.
+pr-comment-once "$pr" "$marker" \
+  "⛔ **Review loop escalated — $ticket needs a human.**
+
+$summary"
+
+echo "escalated $ticket: Needs Human, assigned, agent-ready stripped, findings recorded."

@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+# Record a loop round as an empty commit — the trailer IS the round counter.
+#
+# Usage:   review-loop-record <round>
+# Exit:    0 the record commit exists locally; 1 otherwise.
+#
+# Runs inside the PR branch checkout, BEFORE the fix agent, and only COMMITS — it never
+# pushes. The agent's own /korg:commit push carries this commit along as the fix's parent, so
+# the round reaches the remote exactly when the round actually produced something. A
+# round that pushes nothing leaves the head untouched, which is self-limiting: no push
+# means no synchronize, no fresh review, and no next trigger, so an unrecorded dead
+# round cannot burn budget — the loop simply halts on the still-red check.
+#
+# Never add `[skip ci]` to this message. GitHub honours it for `pull_request` too, so when a
+# pushless round makes this commit the head it suppresses every trigger — CI, review, even a
+# label re-add — and the PR wedges permanently with no way back but a new commit.
+# review-loop-gate counts the `Auto-Fix-Round:` trailers; the author identity must
+# keep the `[bot]` suffix the gate uses to tell bot commits from human ones.
+set -euo pipefail
+
+round="${1:?usage: review-loop-record <round>}"
+
+git -c user.name="github-actions[bot]" \
+    -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+  commit --allow-empty \
+  -m "Review loop: record fix round $round" \
+  -m "Auto-Fix-Round: $round"
+echo "recorded round $round locally — it lands with the agent's push"

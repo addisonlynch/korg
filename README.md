@@ -52,6 +52,7 @@ rules:
 linear:
   team: ENG       # team key, addressed by name
   workspace: acme # urlKey, for ticket links
+  owner: Ada      # Linear user name; the autonomous loop assigns escalated tickets to them
 planning:
   # Every label on the team and when to apply it. The project owns it; korg never edits it.
   label_taxonomy: .korg/label-taxonomy.md

@@ -1,0 +1,136 @@
+#!/usr/bin/env bash
+# Select the highest-priority agent-ready Linear ticket and dispatch agent-implement.yml for it,
+# if capacity allows.
+#
+# Queue authority: the Linear `agent-ready` label, consumed at the end of this script, so a ticket
+# is dispatched once per labelling and re-queueing is a human act. The claimable-state filter and
+# the agent/<TEAM>-N branch lock are backstops covering the window before the strip lands.
+#
+# Everything Linear-side is addressed BY NAME (team key, label names, state names) — Linear's
+# filters take names server-side, and the strip mutation takes its label id off the fetched
+# issue itself, so nothing here pins a UUID and a recreated label changes nothing.
+#
+# Capacity: in-flight implement runs, read from GitHub. MAX bounds concurrent implementations, so
+# a slot frees when the implement job exits even though the PR is still in review; review and
+# responder rounds recur back and forth, and counting them would starve new work. Priority order
+# comes from Linear.
+#
+# Usage:   agent-dispatch
+# Env:     LINEAR_API_KEY     — Linear API key (required)
+#          GH_TOKEN           — PAT or app token for `gh` (required; not the job's GITHUB_TOKEN)
+#          GITHUB_REPOSITORY  — owner/repo (required)
+#          MAX                — max concurrent implement runs (default 1)
+#          MODEL_OVERRIDE     — force one model for all tickets (default: per-ticket routing)
+# Exit:    0 dispatched, at capacity, or nothing dispatchable; non-zero on any read failure — an
+#          invalid key is an HTTP 401 caught by --fail, so it can never parse as an empty queue.
+set -euo pipefail
+
+: "${LINEAR_API_KEY:?LINEAR_API_KEY is required}"
+: "${GH_TOKEN:?GH_TOKEN is required}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+MAX="${MAX:-1}"
+# A non-integer MAX would make the capacity test error inside its `if`, which reads as false and
+# dispatches past capacity.
+[[ "$MAX" =~ ^[0-9]+$ ]] || { echo "::error::MAX must be a whole number (got '$MAX')"; exit 1; }
+
+TEAM_KEY=$(korg-config linear.team)
+[ -n "$TEAM_KEY" ] || { echo "::error::linear.team is not set in .korg.yml"; exit 1; }
+READY_LABEL="agent-ready"
+# model:fable never dispatches: Fable runs only in an interactive shell, so a fable-labelled
+# ticket must never be selected however it got labelled agent-ready.
+FABLE_LABEL="model:fable"
+CLAIMABLE_STATES='["Backlog","Todo"]'
+
+# --fail turns 4xx/5xx into a non-zero exit, so a revoked token (Linear answers 401) reds the
+# tick instead of parsing as an empty result set ("no dispatchable tickets").
+linear() {
+  curl -sS --fail --max-time 20 -X POST https://api.linear.app/graphql \
+    -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" -d "$1"
+}
+R="$GITHUB_REPOSITORY"
+
+# Capacity: implement runs whose status is not completed (run-name "implement <TEAM>-N";
+# the non-completed match covers the brief requested/waiting window). --limit 100
+# overrides the low gh default. Fail the tick on a gh error: an undercount here would
+# dispatch past MAX, so it must be visible rather than read as "no matches".
+runs=$(gh run list --repo "$R" --workflow agent-implement.yml --limit 100 --json displayTitle,status) \
+  || { echo "gh run list failed; failing this tick so it is visible"; exit 1; }
+inflight=$(jq -r '.[] | select(.status != "completed") | .displayTitle' <<<"$runs" \
+  | grep -oE "$TEAM_KEY-[0-9]+" | sort -u || true)
+active=$(printf '%s\n' "$inflight" | grep -c . || true)
+echo "in-flight ($active/$MAX): $(printf '%s\n' "$inflight" | paste -sd' ' -)"
+if [ "$active" -ge "$MAX" ]; then echo "at capacity; nothing to dispatch"; exit 0; fi
+
+# shellcheck disable=SC2016  # $f is a GraphQL variable, not a shell expansion
+query='query($f: IssueFilter) { issues(filter: $f, first: 100) {
+  nodes { id identifier priority createdAt labels { nodes { id name } } } } }'
+body=$(jq -nc --arg q "$query" --arg team "$TEAM_KEY" --arg ready "$READY_LABEL" \
+  --argjson states "$CLAIMABLE_STATES" \
+  '{query: $q, variables: {f: {
+      team:   {key: {eq: $team}},
+      labels: {name: {eq: $ready}},
+      state:  {name: {in: $states}}
+  }}}')
+resp=$(linear "$body")
+# GraphQL can return 200 with an errors array (e.g. a malformed filter); a null nodes list must
+# red the tick, not read as an empty queue.
+nodes=$(jq -e '.data.issues.nodes' <<<"$resp") \
+  || { echo "Linear issues query failed: $(jq -c '.errors // .' <<<"$resp")"; exit 1; }
+
+# Priority sort: Linear encodes urgent=1, high=2, normal=3, low=4, none=0 — remap none past low
+# so an unprioritized ticket never outranks a prioritized one; createdAt breaks ties oldest-first.
+candidates=$(jq -r --arg fable "$FABLE_LABEL" '
+    [ .[] | select(([.labels.nodes[].name] | index($fable)) | not) ]
+    | sort_by((if .priority == 0 then 5 else .priority end), .createdAt)
+    | .[].identifier' <<<"$nodes")
+
+# Pick the top candidate that is not already in flight. Only matters for MAX > 1: at MAX=1 the
+# capacity gate has already exited whenever anything is in flight.
+ticket=""
+while read -r c; do
+  [ -z "$c" ] && continue
+  printf '%s\n' "$inflight" | grep -qx "$c" && continue
+  ticket="$c"; break
+done <<< "$candidates"
+if [ -z "$ticket" ]; then echo "no dispatchable tickets"; exit 0; fi
+
+# model:opus -> opusplan: plan on Opus, execute on Sonnet. MODEL_OVERRIDE forces one model for all
+# tickets.
+ticket_labels=$(jq -r --arg t "$ticket" '.[] | select(.identifier == $t) | .labels.nodes[].name' <<<"$nodes")
+if printf '%s\n' "$ticket_labels" | grep -qx "model:opus"; then
+  MODEL=opusplan
+elif printf '%s\n' "$ticket_labels" | grep -qx "model:haiku"; then
+  MODEL=haiku
+else
+  MODEL=sonnet
+fi
+MODEL="${MODEL_OVERRIDE:-$MODEL}"
+
+echo "dispatching $ticket (model $MODEL)"
+gh workflow run agent-implement.yml --repo "$R" -f ticket="$ticket" -f model="$MODEL"
+
+# Consume the claim with Linear's atomic label mutation — no read-modify-write, so nothing else
+# on the ticket can be clobbered. Must stay AFTER a successful `gh workflow run`: strip it first
+# and a failed dispatch silently eats the ticket. The label id comes off the fetched issue's own
+# labels (matched by name), so no id is pinned anywhere; `first(...)` guards duplicate nodes.
+issue_id=$(jq -r --arg t "$ticket" 'first(.[] | select(.identifier == $t)) | .id' <<<"$nodes")
+label_id=$(jq -r --arg t "$ticket" --arg ready "$READY_LABEL" \
+  'first(.[] | select(.identifier == $t)) | .labels.nodes[] | select(.name == $ready) | .id' <<<"$nodes")
+# shellcheck disable=SC2016  # GraphQL variables, not shell expansions
+mutation='mutation($id: String!, $label: String!) { issueRemoveLabel(id: $id, labelId: $label) { success } }'
+strip_body=$(jq -nc --arg q "$mutation" --arg id "$issue_id" --arg label "$label_id" \
+  '{query: $q, variables: {id: $id, label: $label}}')
+# No --fail here: Linear answers a user error (including "Label not on issue") with a 4xx whose
+# body carries the reason, and --fail would discard it. "Label not on issue" is the idempotent
+# case — a raced or repeated strip finds the claim already consumed, which is the outcome we
+# wanted. Anything else red-ends the tick: a surviving agent-ready label re-dispatches forever.
+strip_resp=$(curl -sS --max-time 20 -X POST https://api.linear.app/graphql \
+  -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" -d "$strip_body")
+if jq -e '.data.issueRemoveLabel.success == true' <<<"$strip_resp" > /dev/null 2>&1; then
+  echo "removed agent-ready from $ticket"
+elif jq -e '.errors[]?.message | select(. == "Label not on issue")' <<<"$strip_resp" > /dev/null 2>&1; then
+  echo "agent-ready already absent on $ticket — claim was already consumed"
+else
+  echo "failed to remove agent-ready from $ticket: $(jq -c '.errors // .' <<<"$strip_resp")"
+  exit 1
+fi
