@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+# Classify how an unattended implement run ended, from evidence only: the open PR on
+# agent/<TEAM>-N before vs after the run, then the ticket's terminal Linear state. A run that
+# stopped short reaches none of those and goes red — the visible "look at this ticket" signal.
+#
+# Usage:   agent-run-outcome <TEAM>-N
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — for the PR check (gh pr list)
+#          PR_BEFORE                   — open PR number for the ticket captured BEFORE the agent
+#                                        ran ("" = none); distinguishes "opened by this run"
+#                                        from "was already open"
+#          LINEAR_API_KEY              — for the spike / bail state reads
+#          GITHUB_OUTPUT               — `outcome` and `pr_number` appended, when set
+# Exit:    0 the run reached a recognized exit; 1 anything else — it stopped early, a gh error, or
+#          an unreadable Linear state (never silently read as "no PR": a revoked token is not a
+#          missing PR, and an unreachable Linear is not a ticket that failed to reach Done).
+#
+# Accepted gap: with PR_BEFORE set, every ending is `dedup`, including a crash — a run on a ticket
+# that already had an open PR had nothing to do anyway, so there is nothing to distinguish.
+set -euo pipefail
+
+t="${1:?usage: agent-run-outcome <TEAM>-N}"
+PR_BEFORE="${PR_BEFORE:-}"
+
+emit() {
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "outcome=$1" >> "$GITHUB_OUTPUT"
+    echo "pr_number=$2" >> "$GITHUB_OUTPUT"
+  fi
+}
+
+pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "agent/$t" --state open \
+  --json number --jq '.[0].number // empty') \
+  || { echo "::error::gh pr list failed — cannot classify the run for $t."; exit 1; }
+
+if [ -n "$pr" ] && [ "$pr" != "$PR_BEFORE" ]; then
+  emit opened "$pr"
+  echo "PR #$pr open for agent/$t — implement succeeded."
+  exit 0
+fi
+
+if [ -n "$PR_BEFORE" ]; then
+  emit dedup ""
+  echo "::notice::no-op: $t already had an open PR (#$PR_BEFORE) before this run (the dedup exit); nothing was touched. Close or finish that PR before re-queueing the ticket."
+  exit 0
+fi
+
+# No PR either side. The two legitimate no-PR exits each end by writing a terminal Linear state,
+# so that state is the evidence. Key off state, not the ticket's `spike` label: the label is an
+# INPUT present from dispatch, so exempting on it would green-light a spike that produced nothing.
+state=$(linear-issue "$t" | jq -r '.state.name // empty') \
+  || { echo "::error::could not read $t from Linear — cannot classify a run that opened no PR."; exit 1; }
+case "$state" in
+  Done)
+    emit spike ""
+    echo "::notice::$t is Done with no PR — spike deliverable (findings comment) complete. See Linear."
+    exit 0 ;;
+  "Needs Human")
+    emit bail ""
+    echo "::notice::$t bailed cleanly (Needs Human) — no PR expected, not a failure. See Linear."
+    exit 0 ;;
+esac
+
+echo "::error::no open PR for agent/$t and the ticket is '${state:-unknown}', not Done or Needs Human — the agent stopped early. Failing so it is visible."
+exit 1

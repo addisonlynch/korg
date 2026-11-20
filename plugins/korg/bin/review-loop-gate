@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# Decide what a respond run should do: fix round, escalate, or nothing.
+#
+# Usage:   review-loop-gate <pr-number> <loop|human>
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — required
+#          GITHUB_OUTPUT               — `action` (+ `round` on action=round) appended, when set
+# Output:  action=skip|round|escalate   round=N (N=0 marks a human-triggered round:
+#          never recorded, never capped — the human is their own round counter)
+# Exit:    0 on a decision; 1 when the PR state is unreadable (fail loudly — a blind
+#          loop must never guess a round).
+#
+# Runs inside the PR branch checkout. There is no stored counter: the round budget is the
+# `Auto-Fix-Round:` commit trailers on `origin/<base>..HEAD`, counted newest-first and only
+# back to the most recent human-authored commit — a human commit resets the budget, and
+# human commits are never themselves counted (bot commits are recognizable by the `[bot]`
+# suffix GitHub puts in their author email).
+#
+# For `loop`, every guard keys off the PR's CURRENT state rather than the triggering
+# event, so queued duplicate triggers self-neutralize.
+set -euo pipefail
+
+MAX_ROUNDS=3
+
+pr="${1:?usage: review-loop-gate <pr-number> <loop|human>}"
+source="${2:?usage: review-loop-gate <pr-number> <loop|human>}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+: "${GH_TOKEN:?GH_TOKEN is required}"
+
+emit() {
+  if [ -n "${GITHUB_OUTPUT:-}" ]; then
+    echo "action=$1" >> "$GITHUB_OUTPUT"
+    [ -z "${2:-}" ] || echo "round=$2" >> "$GITHUB_OUTPUT"
+  fi
+  echo "review-loop gate for PR #$pr ($source): action=$1${2:+ round=$2}${3:+ — $3}"
+}
+
+case "$source" in
+  human) emit round 0 "human rounds are neither counted nor capped"; exit 0 ;;
+  loop) ;;
+  *) echo "::error::invalid source '$source' (want loop|human)"; exit 1 ;;
+esac
+team=$(korg-config linear.team)
+[ -n "$team" ] || { echo "::error::linear.team is not set in .korg.yml"; exit 1; }
+
+view=$(gh pr view "$pr" --repo "$GITHUB_REPOSITORY" --json state,baseRefName,headRefName,headRefOid,labels) \
+  || { echo "::error::could not read PR #$pr"; exit 1; }
+state=$(jq -r '.state' <<<"$view")
+base=$(jq -r '.baseRefName' <<<"$view")
+head_ref=$(jq -r '.headRefName' <<<"$view")
+head_sha=$(jq -r '.headRefOid' <<<"$view")
+
+[ "$state" = "OPEN" ] || { emit skip "" "PR is $state"; exit 0; }
+case "$head_ref" in
+  "agent/$team-"*) ;;
+  *) emit skip "" "head branch '$head_ref' is not agent/$team-* — only dispatched PRs loop"; exit 0 ;;
+esac
+
+# no-auto-review: a human has taken review over. Only source=loop reaches here, so @claude
+# rounds still run.
+if jq -e '.labels | map(.name) | index("no-auto-review")' <<<"$view" > /dev/null; then
+  emit skip "" "no-auto-review label present — reviews on this PR are manual"
+  exit 0
+fi
+
+check=$(gh api "repos/$GITHUB_REPOSITORY/commits/$head_sha/check-runs?check_name=agent-review" \
+  --jq '.check_runs | max_by(.id) // empty') \
+  || { echo "::error::could not read check runs for $head_sha"; exit 1; }
+[ -n "$check" ] || { emit skip "" "no agent-review check on the current head"; exit 0; }
+
+check_status=$(jq -r '.status' <<<"$check")
+conclusion=$(jq -r '.conclusion // empty' <<<"$check")
+forced=$(jq -r '.external_id // empty' <<<"$check")
+[ "$check_status" = "completed" ] || { emit skip "" "review of the current head is still running"; exit 0; }
+[ "$conclusion" = "failure" ] || { emit skip "" "current verdict is '$conclusion', nothing to fix"; exit 0; }
+[ "$forced" != "forced" ] || { emit skip "" "the review never published a verdict — no findings to fix"; exit 0; }
+
+# A round that ends without pushing leaves a `pushless-round:<sha>` marker on the PR. Without a
+# push it never reaches the trailer count, so a duplicate trigger on that head would rerun a
+# round that already found nothing it could change.
+comments=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --jq '.[].body') \
+  || { echo "::error::could not read comments on PR #$pr"; exit 1; }
+if grep -qF -- "pushless-round:$head_sha" <<<"$comments"; then
+  emit skip "" "a round on this head already ended without pushing — a human needs to act"
+  exit 0
+fi
+
+# The budget: Auto-Fix-Round trailers since the last human-authored commit.
+git fetch -q origin "$base"
+rounds=0
+while IFS=$'\t' read -r email trailer; do
+  case "$email" in
+    *"[bot]"*) [ -z "$trailer" ] || rounds=$((rounds + 1)) ;;
+    *) break ;;
+  esac
+done < <(git log "origin/$base..HEAD" --first-parent \
+  --format='%ae%x09%(trailers:key=Auto-Fix-Round,valueonly,separator=;)')
+
+if [ "$rounds" -ge "$MAX_ROUNDS" ]; then
+  emit escalate "" "$rounds rounds spent since the last human touch"
+else
+  emit round "$((rounds + 1))"
+fi

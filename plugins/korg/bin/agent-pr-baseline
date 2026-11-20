@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Capture whether a PR was already open for a ticket BEFORE the implement agent runs, so
+# agent-run-outcome can tell "this run opened a PR" from "a PR has been open for a week".
+#
+# Usage:   agent-pr-baseline <TEAM>-N
+# Env:     GH_TOKEN, GITHUB_REPOSITORY — for the PR lookups (gh pr list)
+#          GITHUB_OUTPUT               — `number` appended, when set ("" = no baseline PR)
+# Exit:    0 the baseline was determined (with or without a PR); 1 on a malformed ticket id or a
+#          gh failure — never a silent empty baseline, which would let a pre-existing PR read as
+#          this run's work.
+#
+# Both dedup queries run, because either one bails the implement run: a PR that
+# references the ticket from some other branch blocks it just as hard as one on agent/<TEAM>-N. A
+# baseline that saw only the branch would read that bail as a stopped run.
+#
+# This is the first thing to touch the ticket id, so it validates the format before any later step
+# interpolates it: a malformed id (bare number, lowercase) would silently point the baseline and the
+# classification at different branches.
+set -euo pipefail
+
+t="${1:?usage: agent-pr-baseline <TEAM>-N}"
+: "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
+team=$(korg-config linear.team)
+[ -n "$team" ] || { echo "::error::linear.team is not set in .korg.yml"; exit 1; }
+
+[[ "$t" =~ ^$team-[0-9]+$ ]] || { echo "::error::ticket must be $team-N (got '$t')"; exit 1; }
+
+# stdout is the PR number, so the failure message goes to stderr. `set -e` does not fire inside a
+# command substitution on the left of `||`, so the callers' `|| exit 1` is the only catch for a gh
+# failure: without it a gh outage yields an empty baseline, and a pre-existing PR then classifies
+# as this run's `opened`.
+find_pr() {
+  gh pr list --repo "$GITHUB_REPOSITORY" "$@" --state open --json number --jq '.[0].number // empty' \
+    || { echo "::error::gh pr list failed — cannot establish a PR baseline for $t." >&2; return 1; }
+}
+
+pr=$(find_pr --head "agent/$t") || exit 1
+[ -n "$pr" ] || pr=$(find_pr --search "$t in:title") || exit 1
+
+[ -z "${GITHUB_OUTPUT:-}" ] || echo "number=$pr" >> "$GITHUB_OUTPUT"
+if [ -n "$pr" ]; then
+  echo "PR #$pr already open for $t — this run is expected to take the dedup exit and do nothing."
+fi
