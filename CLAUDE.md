@@ -62,7 +62,8 @@ loop. `README.md` is the user-facing manual; this file is how korg itself is bui
 - **Try a change**: in a consuming project's checkout, `claude --plugin-dir
   <this checkout>/plugins/korg`. Nothing needs committing or releasing.
 - **Checks**: `.korg.yml` wires them into `/korg:commit`: `shellcheck`, `actionlint` and
-  `claude plugin validate` for lint, `pytest tests` for tests. CI runs all but `claude plugin
+  `claude plugin validate` for lint, `scripts/test` for tests (pytest, only when `bin/`, `tests/`
+  or the gate itself changed). CI runs all but `claude plugin
   validate`, which needs the Claude CLI.
 - **PRs and releases**: open PRs through `/korg:open-pr`; release per principle 9, then bump each
   consuming project's pin through its own PR.

@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+# korg's pytest suite, run only when the change touches what it covers: plugins/korg/bin/, the
+# tests themselves, or this gate (this script, ci.yml, .korg.yml).
+#
+# Usage:   scripts/test [<base-ref>]
+#          With a base: the files changed between it and HEAD (CI). Without: the uncommitted diff
+#          plus untracked files (the /korg:commit gate).
+set -euo pipefail
+
+if [ -n "${1:-}" ]; then
+  changed=$(git diff --name-only "$1" HEAD)
+else
+  changed=$(git diff --name-only HEAD; git ls-files --others --exclude-standard)
+fi
+
+if grep -qE '^(plugins/korg/bin/|tests/|scripts/test$|\.github/workflows/ci\.yml$|\.korg\.yml$)' <<<"$changed"; then
+  exec python3 -m pytest tests -q
+fi
+echo "no change to plugins/korg/bin/, tests/ or the test gate: pytest skipped"

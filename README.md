@@ -41,6 +41,8 @@ commands:
   test_one: '"{root}/.venv/bin/python" -m pytest {test} -q'
   # Optional. Lint-fix one file after every Write/Edit. `{file}` is the absolute path, shell-quoted.
   format_file: "ruff format {file}"
+  # Optional. Run by agent-ticket inside each new local worktree; `{root}` as in test_one.
+  worktree_setup: 'ln -sf "{root}/.env" .env && uv sync --locked'
 
 rules:
   # What counts as a checkable acceptance criterion and which tests should exist; test-review
@@ -81,6 +83,11 @@ evidence:
     - name: Migration                               # the `### Migration` subsection
       paths: ["db/migrations/**"]
       need: post-migrate assertion output
+# The agent layer (agent-ticket). Requires linear.team, linear.workspace and linear.owner.
+agent:
+  # Optional. Project-specific steps agent-ticket follows where each says it applies: a skill to
+  # load for a ticket label, how to capture evidence, a nudge to post after the PR opens.
+  extensions: .korg/agent-ticket.md
 ```
 
 The planning skills talk to Linear the way the project's Linear rule in `.claude/rules/` says
@@ -117,6 +124,7 @@ frontmatter and fills `consumed_by` with the parent ticket.
 | `/korg:to-tickets` | Break a PRD, parent issue or conversation into vertical-slice tickets with blocked-by links, after you approve the breakdown |
 | `/korg:open-pr` | `/korg:commit`, then open the PR with a structured description and request review |
 | `/korg:pr-review` | The review bot's instructions: correctness, fitness and altitude reviewers, one review, the `agent-review` check |
+| `/korg:agent-ticket` | Work one Linear ticket end to end: implement, open the PR, request review; or one fix round (`--ci-respond`) |
 | `/korg:groom-backlog` | Triage the backlog: stale, stuck, unready, mislabelled and duplicate tickets, and queue the ones whose blockers are done |
 
 Project rules in `.claude/rules/*.md` (with optional `paths:` frontmatter) and the root
