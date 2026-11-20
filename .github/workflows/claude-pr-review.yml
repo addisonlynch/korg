@@ -1,0 +1,23 @@
+name: Claude PR Review
+
+# Pinned by tag, not a local path: a PR is reviewed by the released skill and scripts, not by
+# its own copy of them.
+
+on:
+  pull_request:
+    types: [labeled, synchronize]
+  pull_request_review:
+    types: [submitted]
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+  checks: write
+  statuses: read
+  actions: read
+
+jobs:
+  review:
+    uses: addisonlynch/korg/.github/workflows/pr-review.yml@v0.2.2
+    secrets: inherit
