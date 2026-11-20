@@ -1,6 +1,6 @@
 commands:
-  lint: shellcheck plugins/korg/bin/* && actionlint && claude plugin validate plugins/korg
-  test: python3 -m pytest tests -q
+  lint: shellcheck plugins/korg/bin/* scripts/* && actionlint && claude plugin validate plugins/korg
+  test: scripts/test
   test_one: python3 -m pytest {test} -q
 
 rules:
