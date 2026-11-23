@@ -178,6 +178,7 @@ esac
 READY = "agent-ready"
 OPUS = "model:opus"
 HAIKU = "model:haiku"
+SONNET = "model:sonnet"
 FABLE = "model:fable"
 
 
@@ -256,7 +257,7 @@ class TestAgentDispatch:
         argv = self._dispatched(stubs)
         assert "agent-implement.yml" in argv
         assert f"ticket={TEAM}-42" in argv
-        assert "model=sonnet" in argv
+        assert "model=opusplan" in argv
         # A wrong --repo would dispatch into another repository entirely.
         assert "--repo" in argv and "owner/repo" in argv
         # The claim is consumed against the ticket's own issue id, with the label id read off the
@@ -407,7 +408,8 @@ class TestAgentDispatch:
         [
             pytest.param([READY, OPUS], "opusplan", id="opus-plans-then-executes"),
             pytest.param([READY, HAIKU], "haiku", id="haiku"),
-            pytest.param([READY], "sonnet", id="unlabelled-defaults-to-sonnet"),
+            pytest.param([READY, SONNET], "sonnet", id="sonnet"),
+            pytest.param([READY], "opusplan", id="unlabelled-defaults-to-opusplan"),
         ],
     )
     def test_model_routing_from_the_ticket_label(self, stubs: Path, labels, model: str) -> None:

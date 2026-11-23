@@ -44,8 +44,9 @@ class TestResolveTicketModel:
             pytest.param(["model:opus"], "opus", id="opus"),
             pytest.param(["model:haiku"], "haiku", id="haiku"),
             pytest.param(["model:sonnet"], "sonnet", id="sonnet"),
-            pytest.param([], "sonnet", id="no-model-label-defaults-to-sonnet"),
-            pytest.param(["model:fable"], "sonnet", id="fable-is-never-resolved"),
+            pytest.param([], "opus", id="no-model-label-defaults-to-opus"),
+            pytest.param(["model:fable"], "opus", id="fable-is-never-resolved"),
+            pytest.param(["agent-loop", "model:sonnet"], "sonnet", id="sonnet-found-among-other-labels"),
             pytest.param(["agent-loop", "model:opus"], "opus", id="found-among-other-labels"),
         ],
     )
@@ -82,16 +83,26 @@ class TestResolveTicketModel:
     )
     def test_an_argument_with_no_ticket_defaults_without_calling_linear(self, tmp_path: Path, arg: str) -> None:
         """The inverse: no ticket in the argument must not fetch, and must not fail the caller."""
-        stubs, result = self._run(tmp_path, arg, labels=["model:opus"])
+        stubs, result = self._run(tmp_path, arg, labels=["model:sonnet"])
         assert result.returncode == 0, result.stderr
-        assert result.stdout.strip() == "sonnet"
+        assert result.stdout.strip() == "opus"
+        assert "::warning::" in result.stderr
         assert not (stubs / "linear_argv").exists()
 
-    def test_an_unreachable_linear_defaults_to_sonnet(self, tmp_path: Path) -> None:
-        """Safe direction: an opus ticket runs sonnet rather than the run failing outright."""
-        _, result = self._run(tmp_path, f"{TEAM}-42", labels=["model:opus"], linear_exit=1)
+    def test_an_unreachable_linear_defaults_to_opus_and_says_so(self, tmp_path: Path) -> None:
+        """A wrong model is recoverable, a failed run is not; the fallback announces itself."""
+        _, result = self._run(tmp_path, f"{TEAM}-42", labels=["model:sonnet"], linear_exit=1)
         assert result.returncode == 0, result.stderr
-        assert result.stdout.strip() == "sonnet"
+        assert result.stdout.strip() == "opus"
+        assert "::warning::" in result.stderr
+
+    def test_an_unlabelled_ticket_warns_and_a_labelled_one_does_not(self, tmp_path: Path) -> None:
+        _, unlabelled = self._run(tmp_path, f"{TEAM}-42", labels=[])
+        assert "::warning::" in unlabelled.stderr
+        _, fable = self._run(tmp_path, f"{TEAM}-42", labels=["model:fable"])
+        assert "no routable model:* label" in fable.stderr
+        _, labelled = self._run(tmp_path, f"{TEAM}-42", labels=["model:opus"])
+        assert "::warning::" not in labelled.stderr
 
 
 class TestResolvePrModel:

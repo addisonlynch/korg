@@ -17,9 +17,9 @@ m="${2:-}"
 
 if [ -z "$m" ]; then
   case "$(resolve-ticket-model "$t")" in
-    opus) m=opusplan ;;
+    sonnet) m=sonnet ;;
     haiku) m=haiku ;;
-    *) m=sonnet ;;
+    *) m=opusplan ;;
   esac
 fi
 

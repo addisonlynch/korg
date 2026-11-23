@@ -122,8 +122,8 @@ produce a code change; skip it for research, planning and idea captures with no 
 
 | Label | Use for |
 |---|---|
-| `model:opus` | Multi-file or cross-subsystem changes, subtle correctness, concurrency or data-shape risk, non-trivial algorithms, anything needing design judgment. |
-| `model:sonnet` | Localized, well-specified, mechanical work. **Default when unsure.** |
+| `model:opus` | Multi-file or cross-subsystem changes, subtle correctness, concurrency or data-shape risk, non-trivial algorithms, anything needing design judgment. **Default when unsure.** |
+| `model:sonnet` | Localized, well-specified, mechanical work. |
 | `model:haiku` | Trivial and fully specified: a string, a constant, a one-line config edit named in the ticket. |
 | `model:fable` | Work the user intends to drive interactively. |
 
