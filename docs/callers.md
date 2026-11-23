@@ -112,6 +112,6 @@ scripts from them.
   and counts in-flight runs by the ticket id in their run names. So the file keeps that name,
   declares `workflow_dispatch` inputs `ticket` and `model`, and has a `run-name` containing the
   ticket (`implement <TEAM>-N`).
-- claude-code-action refuses to run a workflow file that differs from the default branch's copy,
-  so a change to `agent-implement.yml` or `agent-respond.yml` cannot be exercised before it
-  merges.
+- When claude-code-action mints its own token (no `github_token` input), it skips the run,
+  without failing it, if the workflow file differs from the default branch's copy. A change to
+  `agent-implement.yml` or `agent-respond.yml` then cannot be exercised before it merges.
