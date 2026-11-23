@@ -6,6 +6,7 @@
 # Env:     LINEAR_API_KEY   — Linear API key (required)
 # Config:  linear.team      — the team key ticket ids are matched on
 # Output:  prints `opus`, `sonnet` or `haiku` on stdout (default `opus` on any miss/failure).
+#          Exits 2, still printing `opus`, when the argument names no ticket.
 #
 # The ticket is the single source of truth for the run model. Implement passes the ticket id it was
 # dispatched with; review and respond pass the PR title, so their model matches the author's without
@@ -25,7 +26,7 @@ else
   team=$(korg-config linear.team) || { echo "::warning::korg-config could not read linear.team; resolving to opus" >&2; team=""; }
   seq=""
   [ -z "$team" ] || seq=$(printf '%s' "$arg" | grep -oE "$team-[0-9]+" | head -1 || true)
-  if [ -z "$seq" ]; then echo "::warning::no $team ticket id in '$arg'; resolving to opus" >&2; echo opus; exit 0; fi
+  if [ -z "$seq" ]; then echo opus; exit 2; fi
 fi
 
 # A ticket with no model:* label, and any fetch/parse failure, runs opus: a ticket nobody routed is
@@ -34,13 +35,12 @@ fi
 # agent-ready and never reaches a workflow.
 labels=$(linear-issue "$seq" 2>/dev/null | jq -r '.labels[]?.name' 2>/dev/null)
 
-if printf '%s\n' "$labels" | grep -qx "model:sonnet"; then
-  echo sonnet
+if printf '%s\n' "$labels" | grep -qx "model:opus"; then
+  echo opus
 elif printf '%s\n' "$labels" | grep -qx "model:haiku"; then
   echo haiku
-elif printf '%s\n' "$labels" | grep -qx "model:opus"; then
-  echo opus
+elif printf '%s\n' "$labels" | grep -qx "model:sonnet"; then
+  echo sonnet
 else
-  echo "::warning::$seq has no routable model:* label (or Linear could not be read); resolving to opus" >&2
   echo opus
 fi

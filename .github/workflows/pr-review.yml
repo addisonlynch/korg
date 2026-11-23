@@ -170,7 +170,7 @@ jobs:
         run: .korg-harness/plugins/korg/bin/publish-review-check open "$PR" "$HEAD_SHA"
       # The reviewer never runs the author's model: same-family review forfeits the
       # decorrelation that makes review work. The author's family comes from the ticket's
-      # model:* label; `review` mode flips it.
+      # model:* label; `review` mode flips it, and a PR naming no ticket reviews on opus.
       - name: Resolve review model from ticket
         id: model
         if: steps.scope.outputs.wf == 'false'

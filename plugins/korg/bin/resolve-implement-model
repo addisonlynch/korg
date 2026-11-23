@@ -8,27 +8,21 @@
 #
 # Dispatch passes the model explicitly, so the ticket scan runs only for a manual `gh workflow run`
 # or a re-run that left the input blank; reading the label there makes those route like dispatched
-# ones. The opus -> opusplan mapping (plan on Opus, execute on Sonnet) is implement-only: it is a
-# run mode, not a model family, so resolve-ticket-model stays the family-level answer.
+# ones.
 set -euo pipefail
 
 t="${1:?usage: resolve-implement-model <TEAM>-N [requested-model]}"
 m="${2:-}"
 
-if [ -z "$m" ]; then
-  case "$(resolve-ticket-model "$t")" in
-    sonnet) m=sonnet ;;
-    haiku) m=haiku ;;
-    *) m=opusplan ;;
-  esac
-fi
+# Exit 2 (no ticket in $t) still prints the opus default, which is what runs.
+[ -n "$m" ] || m=$(resolve-ticket-model "$t") || true
 
 # The requested model arrives verbatim from a workflow input, goes into $GITHUB_OUTPUT, and is
 # spliced into the action's claude_args. Refuse anything that is not a known alias: a newline would
 # inject extra step outputs, and a typo would otherwise reach the action as a bad --model instead of
-# failing here. The fallback branch above can only produce members of this set.
-[[ "$m" =~ ^(sonnet|opus|opusplan|haiku)$ ]] \
-  || { echo "::error::model must be sonnet, opus, opusplan or haiku (got '$m')" >&2; exit 1; }
+# failing here. resolve-ticket-model only ever prints members of this set.
+[[ "$m" =~ ^(sonnet|opus|haiku)$ ]] \
+  || { echo "::error::model must be sonnet, opus or haiku (got '$m')" >&2; exit 1; }
 
 [ -z "${GITHUB_OUTPUT:-}" ] || echo "model=$m" >> "$GITHUB_OUTPUT"
 echo "run model: $m"

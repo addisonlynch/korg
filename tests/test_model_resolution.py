@@ -48,6 +48,8 @@ class TestResolveTicketModel:
             pytest.param(["model:fable"], "opus", id="fable-is-never-resolved"),
             pytest.param(["agent-loop", "model:sonnet"], "sonnet", id="sonnet-found-among-other-labels"),
             pytest.param(["agent-loop", "model:opus"], "opus", id="found-among-other-labels"),
+            pytest.param(["model:sonnet", "model:opus"], "opus", id="opus-wins-over-sonnet"),
+            pytest.param(["model:haiku", "model:opus"], "opus", id="opus-wins-over-haiku"),
         ],
     )
     def test_resolves_the_model_from_the_tickets_labels(self, tmp_path: Path, labels, expected: str) -> None:
@@ -82,27 +84,18 @@ class TestResolveTicketModel:
         ],
     )
     def test_an_argument_with_no_ticket_defaults_without_calling_linear(self, tmp_path: Path, arg: str) -> None:
-        """The inverse: no ticket in the argument must not fetch, and must not fail the caller."""
+        """The inverse: no ticket in the argument must not fetch. Exit 2 tells the caller the opus
+        it printed is a default, not a label."""
         stubs, result = self._run(tmp_path, arg, labels=["model:sonnet"])
-        assert result.returncode == 0, result.stderr
+        assert result.returncode == 2, result.stderr
         assert result.stdout.strip() == "opus"
-        assert "::warning::" in result.stderr
         assert not (stubs / "linear_argv").exists()
 
-    def test_an_unreachable_linear_defaults_to_opus_and_says_so(self, tmp_path: Path) -> None:
-        """A wrong model is recoverable, a failed run is not; the fallback announces itself."""
+    def test_an_unreachable_linear_defaults_to_opus(self, tmp_path: Path) -> None:
+        """A wrong model is recoverable, a failed run is not."""
         _, result = self._run(tmp_path, f"{TEAM}-42", labels=["model:sonnet"], linear_exit=1)
         assert result.returncode == 0, result.stderr
         assert result.stdout.strip() == "opus"
-        assert "::warning::" in result.stderr
-
-    def test_an_unlabelled_ticket_warns_and_a_labelled_one_does_not(self, tmp_path: Path) -> None:
-        _, unlabelled = self._run(tmp_path, f"{TEAM}-42", labels=[])
-        assert "::warning::" in unlabelled.stderr
-        _, fable = self._run(tmp_path, f"{TEAM}-42", labels=["model:fable"])
-        assert "no routable model:* label" in fable.stderr
-        _, labelled = self._run(tmp_path, f"{TEAM}-42", labels=["model:opus"])
-        assert "::warning::" not in labelled.stderr
 
 
 class TestResolvePrModel:
@@ -117,13 +110,14 @@ class TestResolvePrModel:
         mode: str | None = "respond",
         title: str = f"[{TEAM}-42] Fix",
         family: str = "opus",
+        family_exit: int = 0,
         curl_exit: int = 0,
     ) -> tuple[object, dict[str, str], list[str]]:
         stubs = stub_dir(
             tmp_path,
             {
                 "resolve-ticket-model": (
-                    f'#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$STUB_DIR/family_argv"\necho {family}\n'
+                    f'#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$STUB_DIR/family_argv"\necho {family}\nexit {family_exit}\n'
                 ),
                 "curl": _PR_CURL_STUB,
             },
@@ -200,3 +194,18 @@ class TestResolvePrModel:
         result, outs, _ = self._run(tmp_path, title=title, curl_exit=curl_exit, family="sonnet")
         assert result.returncode == 0, result.stderr
         assert outs == {"model": "sonnet"}
+
+    @pytest.mark.parametrize(
+        ("mode", "expected"),
+        [
+            pytest.param("review", "opus", id="review-stays-on-opus"),
+            pytest.param("respond", "opus", id="respond-runs-the-default"),
+        ],
+    )
+    def test_a_pr_naming_no_ticket_has_an_unknown_author(self, tmp_path: Path, mode: str, expected: str) -> None:
+        """resolve-ticket-model exits 2 on no ticket; review must not treat its opus default as
+        an opus author and hand the PR to sonnet."""
+        result, outs, _ = self._run(tmp_path, mode=mode, title="Bump the deps", family="opus", family_exit=2)
+        assert result.returncode == 0, result.stderr
+        assert outs == {"model": expected}
+        assert "author=unknown" in result.stdout
