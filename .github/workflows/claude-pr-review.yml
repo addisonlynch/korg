@@ -19,5 +19,5 @@ permissions:
 
 jobs:
   review:
-    uses: addisonlynch/korg/.github/workflows/pr-review.yml@v0.2.2
+    uses: addisonlynch/korg/.github/workflows/pr-review.yml@v0.2.3
     secrets: inherit
