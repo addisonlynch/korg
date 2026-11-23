@@ -23,6 +23,7 @@ Optional keys:
   capture evidence, a nudge to post after the PR opens). Read it at Step 2 and follow each step
   where it says it applies.
 - `evidence`: the change types whose PR must carry run output (see Step 3).
+- `planning.hazards`: what an unattended run must never do (see the decision gate).
 
 ## Inputs
 
@@ -94,18 +95,30 @@ instead of the gates below:
 
 ### Criteria-present gate
 
-If the ticket will produce a code change, it must have an **Acceptance criteria** section with
+If the ticket will produce a code change, it must have an **Acceptance criteria** (or **Done when**) section with
 checkable conditions. Without one, bail with a comment that the ticket needs that section before
 an agent can work it, and exit 0. Planning, research, epic and idea tickets are exempt when their
-content clearly means no code change; when that is ambiguous, require criteria.
+content clearly means no code change; when that is ambiguous, require criteria. A criterion
+checked only after deploy is the owner's: it does not count here, and it never blocks the run.
 
-### Judge the work
+### Decision gate
 
 Whether a finished diff would *satisfy* the criteria is advisory: implement and let
-`pr-review`'s fitness reviewer judge. Whether you can identify a clear change at all is a gate:
-bail with a comment naming exactly what the human must specify, and exit 0. Bail the same way in
-`--ci-implement` when satisfying the ticket requires editing `.github/workflows/`: the app token
-cannot push workflow files, so the run would fail at the final push.
+`pr-review`'s fitness reviewer judge. Whether the ticket leaves you something to decide is a gate.
+Bail when any of these holds, with a comment naming each that holds, and exit 0:
+
+- **No clear change.** The ticket does not say what to change.
+- **An open question.** The fix depends on something the ticket leaves open: a cause it asks you
+  to find, or alternatives ("X, or Y") with no word on which applies. A question is not open when
+  the ticket says what to do for every answer you could find.
+- **An owner decision.** Satisfying it would spend money, or change something the repo or the
+  ticket says the owner decides, and the ticket does not decide it.
+- **A hazard.** It does something `planning.hazards` forbids an unattended run, whatever the
+  ticket says.
+
+Bail the same way in `--ci-implement` when satisfying the ticket requires editing
+`.github/workflows/`: the app token cannot push workflow files, so the run would fail at the final
+push.
 
 ### Branch
 
@@ -135,7 +148,10 @@ Keep a running log of implementation notes as you go: every decision that was no
 every departure from the obvious approach, every tradeoff the reviewer should know. Step 4 posts
 it; the fix-round responder reads it, the reviewer does not.
 
-Make the smallest change that satisfies the ticket. No speculative refactors or adjacent cleanup.
+Make the smallest change that does all of what the ticket names, the way it names it. A part left
+undone or a cheaper approach is not an implementation note: it is the bail at the end of this
+step. Only the project's rules override the ticket (a test `rules.testing_signal` excludes, below).
+No speculative refactors or adjacent cleanup.
 Honor every rule in `CLAUDE.md` and `.claude/rules/`. Run only the test files you are writing or
 editing (`commands.test_one`): the regression run happens once, inside `/korg:open-pr`. Before
 adding a test, check it against `rules.testing_signal` when set: a test the rule excludes is not
