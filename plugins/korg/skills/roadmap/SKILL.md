@@ -28,8 +28,8 @@ Then follow the matching path below, and finish at **Create the work item**.
 
 If the description is 4 words or fewer, or lacks a concrete outcome ("improve UI", "better
 data"), ask one sharpening question: "What's the specific outcome or user benefit?" Weave the
-answer in. Skip if already clear. Then create the work item, with the description = the full
-captured text.
+answer in. Skip if already clear, or when no person is present. Then create the work item, with
+the description = the full captured text.
 
 ---
 
@@ -51,7 +51,8 @@ Don't proceed until scoped to ~2 hours.
 
 If `planning.hazards` is set, read that file. It lists what an
 unattended run must never do in this project and what a ticket touching a sensitive area must
-say. Refuse a task the file forbids; carry any "must say" into the draft's Constraints.
+say. Refuse a task the file forbids (with no person present, file it for the owner instead:
+§ No person present); carry any "must say" into the draft's Constraints.
 
 ### Step 4: Grill for context (one question at a time, max 4)
 
@@ -91,8 +92,32 @@ say. Refuse a task the file forbids; carry any "must say" into the draft's Const
 <only if relevant; omit otherwise>
 ```
 
-Show the draft and ask: "Does this look right, or anything to change?" On confirmation, create
-the work item with the draft as the description.
+Show the draft and ask: "Does this look right, or anything to change?" On confirmation (or with
+no person present, at once), create the work item with the draft as the description.
+
+---
+
+## No person present
+
+When the caller is a non-interactive job rather than a person, it passes the description and
+its evidence; with neither, stop. Nobody can answer a question or confirm a draft: with `--auto`,
+answer Steps 2 to 4 from the evidence and the code. A question neither answers is what the
+ticket needs from its owner.
+
+Queue an `--auto` item only when all of these hold:
+
+- It clears Steps 2 to 4.
+- You can state the default you would take, and why.
+- The default is not a one-way door: a production write, money, text a user of the product
+  reads, anything the hazards file reserves for a human, or reversing a decision a human made.
+
+Otherwise file it without `agent-ready`, created in state `Needs Human` and assigned to
+`linear.owner` in the same call: the assignment is what notifies the owner. If `linear.owner` is
+unset, stop.
+
+On an `--auto` item, the line after the filer line, before any heading, is `Default: <X>,
+because <Y>` on a queued ticket, and on a `Needs Human` one what it needs from the owner and your
+default when you have one.
 
 ---
 
@@ -113,6 +138,7 @@ Confirm with a hyperlink built from the response's `identifier`:
 
 - quick capture: `Added to backlog: [<ID> — <title>](https://linear.app/<linear.workspace>/issue/<ID>/)`
 - `--auto`: `Queued: [<ID> — <title>](https://linear.app/<linear.workspace>/issue/<ID>/)`
+- `--auto` with no person present, not queued: `Needs Human: [<ID> — <title>](https://linear.app/<linear.workspace>/issue/<ID>/)`
 
 ## Model routing
 
