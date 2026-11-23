@@ -8,7 +8,8 @@ loop. `README.md` is the user-facing manual; this file is how korg itself is bui
 
 - `plugins/korg/skills/<name>/SKILL.md` (+ `reference/`): the `/korg:<name>` skills.
 - `plugins/korg/bin/`: commands on PATH while the plugin is enabled; called by bare name from
-  skills and by `<korg checkout>/plugins/korg/bin/<name>` from workflow steps.
+  skills and by `<korg checkout>/plugins/korg/bin/<name>` from workflow steps, which also put that
+  directory on `GITHUB_PATH` because the scripts call each other by bare name.
 - `plugins/korg/hooks/hooks.json`: plugin hooks.
 - `.github/workflows/pr-review.yml`, `base-guard.yml`: reusable workflows projects call;
   `ci.yml`: korg's own CI. `docs/callers.md`: what a project adds to call them.

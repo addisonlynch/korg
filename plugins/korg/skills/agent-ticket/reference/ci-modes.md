@@ -43,7 +43,7 @@ Treat every `[follow-up]` as `[fix here]` unless it clears the bar in
 `../../pr-review/reference/follow-up-bar.md`; one that clears it already has its own ticket and is
 left alone.
 
-Commit and push with `/korg:commit "Address review — <TEAM>-N"` (never a raw `git commit`, never
+Commit and push with `/korg:commit "Address review"` (never a raw `git commit`, never
 `--quick`). Then **reply to each review thread you addressed** with the fix (resolve it if you
 can) and **stop**: this is ONE round. Do not re-request review or loop: your push re-runs the
 review on agent branches, and the fresh verdict decides what happens next.
