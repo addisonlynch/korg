@@ -32,8 +32,9 @@ loop. `README.md` is the user-facing manual; this file is how korg itself is bui
    its PR; anything that needs more (publishing to another branch, a deploy, a cross-repo write)
    runs in a deterministic workflow step that holds that credential.
 6. **Fail loud.** An error surfaces as a non-zero exit or a refusal with the reason. Where a
-   default is the safer outcome (a model, a best-effort comment), the fallback announces itself
-   with a `::warning::`; it is never silent.
+   default is the safer outcome (a best-effort comment), the fallback announces itself with a
+   `::warning::`; it is never silent. The run-model default is the exception: resolving to
+   opus on a missing label, ticket id or Linear read is routine, not a failure.
 7. **The smallest construct that works.** Prefer deleting to adding. No new script, flag or
    step when an instruction or an existing step does the job.
 

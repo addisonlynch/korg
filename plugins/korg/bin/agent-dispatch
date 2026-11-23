@@ -94,15 +94,15 @@ while read -r c; do
 done <<< "$candidates"
 if [ -z "$ticket" ]; then echo "no dispatchable tickets"; exit 0; fi
 
-# model:opus -> opusplan: plan on Opus, execute on Sonnet. MODEL_OVERRIDE forces one model for all
-# tickets.
 ticket_labels=$(jq -r --arg t "$ticket" '.[] | select(.identifier == $t) | .labels.nodes[].name' <<<"$nodes")
 if printf '%s\n' "$ticket_labels" | grep -qx "model:opus"; then
-  MODEL=opusplan
+  MODEL=opus
 elif printf '%s\n' "$ticket_labels" | grep -qx "model:haiku"; then
   MODEL=haiku
-else
+elif printf '%s\n' "$ticket_labels" | grep -qx "model:sonnet"; then
   MODEL=sonnet
+else
+  MODEL=opus
 fi
 MODEL="${MODEL_OVERRIDE:-$MODEL}"
 

@@ -15,7 +15,8 @@
 #   review  — never the author's model, hard rule. Same-family review forfeits the
 #             decorrelation that makes review work (most findings are unique
 #             to one reviewer): sonnet-authored → opus reviews; opus- or haiku-authored →
-#             sonnet reviews. The judge must not be the author.
+#             sonnet reviews. The judge must not be the author. A title naming no ticket
+#             has an unknown author and reviews on opus; respond runs the opus default.
 #
 # curl rather than `gh`: a self-hosted runner may not resolve `gh` this early in a job, and curl
 # works everywhere.
@@ -30,21 +31,23 @@ esac
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 : "${GH_TOKEN:?GH_TOKEN is required}"
 
-# A failed read yields an empty title, which resolve-ticket-model turns into the sonnet default
+# A failed read yields an empty title, which resolve-ticket-model turns into its default
 # rather than an error: picking the wrong model is recoverable, failing the round is not.
 title=$(curl -sf -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
   "https://api.github.com/repos/$GITHUB_REPOSITORY/pulls/$pr" | jq -r '.title') || {
-  echo "::warning::could not read PR #$pr's title; resolving the author model to the sonnet default" >&2
+  echo "::warning::could not read PR #$pr's title; resolving the author model to resolve-ticket-model's default" >&2
   title=""
 }
 
-author_model=$(resolve-ticket-model "$title")
+author_model=$(resolve-ticket-model "$title") || author_model=unknown
 
 if [ "$mode" = "review" ]; then
   case "$author_model" in
-    sonnet) model=opus ;;
-    *)      model=sonnet ;;   # opus- and haiku-authored PRs get the sonnet reviewer
+    sonnet|unknown) model=opus ;;
+    *)              model=sonnet ;;   # opus- and haiku-authored PRs get the sonnet reviewer
   esac
+elif [ "$author_model" = unknown ]; then
+  model=opus
 else
   model="$author_model"
 fi

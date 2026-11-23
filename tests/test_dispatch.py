@@ -178,6 +178,7 @@ esac
 READY = "agent-ready"
 OPUS = "model:opus"
 HAIKU = "model:haiku"
+SONNET = "model:sonnet"
 FABLE = "model:fable"
 
 
@@ -256,7 +257,7 @@ class TestAgentDispatch:
         argv = self._dispatched(stubs)
         assert "agent-implement.yml" in argv
         assert f"ticket={TEAM}-42" in argv
-        assert "model=sonnet" in argv
+        assert "model=opus" in argv
         # A wrong --repo would dispatch into another repository entirely.
         assert "--repo" in argv and "owner/repo" in argv
         # The claim is consumed against the ticket's own issue id, with the label id read off the
@@ -405,9 +406,12 @@ class TestAgentDispatch:
     @pytest.mark.parametrize(
         ("labels", "model"),
         [
-            pytest.param([READY, OPUS], "opusplan", id="opus-plans-then-executes"),
+            pytest.param([READY, OPUS], "opus", id="opus"),
             pytest.param([READY, HAIKU], "haiku", id="haiku"),
-            pytest.param([READY], "sonnet", id="unlabelled-defaults-to-sonnet"),
+            pytest.param([READY, SONNET], "sonnet", id="sonnet"),
+            pytest.param([READY, SONNET, OPUS], "opus", id="opus-wins-over-sonnet"),
+            pytest.param([READY, HAIKU, OPUS], "opus", id="opus-wins-over-haiku"),
+            pytest.param([READY], "opus", id="unlabelled-defaults-to-opus"),
         ],
     )
     def test_model_routing_from_the_ticket_label(self, stubs: Path, labels, model: str) -> None:
@@ -579,13 +583,13 @@ class TestAgentPrBaseline:
 
 class TestResolveImplementModel:
     def _run(
-        self, tmp_path: Path, requested: str = "", *, family: str = "sonnet"
+        self, tmp_path: Path, requested: str = "", *, family: str = "sonnet", family_exit: int = 0
     ) -> tuple[Path, object, dict[str, str]]:
         stubs = stub_dir(
             tmp_path,
             {
                 "resolve-ticket-model": (
-                    f'#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$STUB_DIR/family_argv"\necho {family}\n'
+                    f'#!/usr/bin/env bash\nprintf \'%s\\n\' "$@" > "$STUB_DIR/family_argv"\necho {family}\nexit {family_exit}\n'
                 )
             },
         )
@@ -596,7 +600,7 @@ class TestResolveImplementModel:
     @pytest.mark.parametrize(
         ("family", "expected"),
         [
-            pytest.param("opus", "opusplan", id="opus-becomes-opusplan"),
+            pytest.param("opus", "opus", id="opus"),
             pytest.param("haiku", "haiku", id="haiku"),
             pytest.param("sonnet", "sonnet", id="sonnet"),
         ],
@@ -607,14 +611,20 @@ class TestResolveImplementModel:
         assert outs == {"model": expected}
         assert (stubs / "family_argv").read_text().splitlines() == [f"{TEAM}-42"]
 
+    def test_a_ticket_id_naming_no_ticket_runs_the_opus_default(self, tmp_path: Path) -> None:
+        """resolve-ticket-model exits 2 here; implement runs its printed default, not fails."""
+        _, result, outs = self._run(tmp_path, family="opus", family_exit=2)
+        assert result.returncode == 0, result.stderr
+        assert outs == {"model": "opus"}
+
     def test_an_explicit_model_wins_over_the_tickets_label(self, tmp_path: Path) -> None:
         _, result, outs = self._run(tmp_path, "haiku", family="opus")
         assert result.returncode == 0, result.stderr
         assert outs == {"model": "haiku"}
 
-    @pytest.mark.parametrize("requested", ["sonnet", "opus", "opusplan", "haiku"])
+    @pytest.mark.parametrize("requested", ["sonnet", "opus", "haiku"])
     def test_every_documented_alias_is_accepted(self, tmp_path: Path, requested: str) -> None:
-        """The inverse of the guard below: the workflow input advertises these four."""
+        """The inverse of the guard below: the workflow input advertises these three."""
         _, result, outs = self._run(tmp_path, requested)
         assert result.returncode == 0, result.stderr
         assert outs == {"model": requested}
