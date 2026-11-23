@@ -42,7 +42,8 @@ Each finding a subagent returns must be a record with: `label` (one of `[blocker
      criterion whose named artifact is absent, or whose named test lacks the assertion the
      criterion requires, is a `[blocker]`, even when the intent looks satisfied. One exception,
      when `rules.testing_signal` is set: a criterion naming a test that rule excludes is void,
-     because the author was right not to write it.
+     because the author was right not to write it. A criterion checked only after deploy is void
+     too: no diff can satisfy it.
    - **Intent pass (on top):** judge intent as well as letter: a criterion met in substance
      though unmet in wording counts as met once the substance is verified in the diff, and the
      per-criterion floor above always applies; a PR that satisfies every literal criterion while
