@@ -82,8 +82,8 @@ is the failure mode, so stay quiet when unclear.
     and no blocker that is not `Done` (the runner ignores blocking links).
     The dispatcher strips it on dispatch, so adding it back is a re-queue and needs the gate.
   - `Needs Shaping` (a state): a design decision is owed first; which kind goes in the body.
-  - `Needs Human` (a state): an autonomous path handing work to a human (an agent bail, an
-    unattended roadmap filing). Grooming never moves a ticket into it.
+  - `Needs Human` (a state): an autonomous path handing work to a human (an agent bail, a
+    roadmap filing by a non-interactive job). Grooming never moves a ticket into it.
 
 Never mark a non-`spike` ticket `agent-ready` without acceptance criteria. If
 `planning.hazards` is set, never mark one `agent-ready` that does what that file forbids an

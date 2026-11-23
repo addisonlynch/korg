@@ -99,8 +99,8 @@ no person present, at once), create the work item with the draft as the descript
 
 ## No person present
 
-A caller that says it runs unattended (a job, not a person) passes the description and its
-evidence; with neither, stop. Nobody can answer a question or confirm a draft: with `--auto`,
+When the caller is a non-interactive job rather than a person, it passes the description and
+its evidence; with neither, stop. Nobody can answer a question or confirm a draft: with `--auto`,
 answer Steps 2 to 4 from the evidence and the code. A question neither answers is what the
 ticket needs from its owner.
 
