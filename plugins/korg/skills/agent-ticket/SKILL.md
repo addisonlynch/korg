@@ -75,7 +75,8 @@ finish that PR; retrying a ticket that has one is an interactive decision.
 
 ## Step 2: judge
 
-Read the full ticket, and `agent.extensions` when it is set.
+Read the full ticket, `agent.extensions` when it is set, and in `--ci-implement` the
+`planning.hazards` file when it is set.
 
 ### Spike gate
 
@@ -99,7 +100,8 @@ If the ticket will produce a code change, it must have an **Acceptance criteria*
 checkable conditions. Without one, bail with a comment that the ticket needs that section before
 an agent can work it, and exit 0. Planning, research, epic and idea tickets are exempt when their
 content clearly means no code change; when that is ambiguous, require criteria. A criterion
-checked only after deploy is the owner's: it does not count here, and it never blocks the run.
+checked only after deploy is the owner's to check: the ticket still needs one the run can check,
+and the post-deploy one is never a reason to bail.
 
 ### Decision gate
 
@@ -113,8 +115,8 @@ Bail when any of these holds, with a comment naming each that holds, and exit 0:
   the ticket says what to do for every answer you could find.
 - **An owner decision.** Satisfying it would spend money, or change something the repo or the
   ticket says the owner decides, and the ticket does not decide it.
-- **A hazard.** It does something `planning.hazards` forbids an unattended run, whatever the
-  ticket says.
+- **A hazard** (`--ci-implement` only, when `planning.hazards` is set). It does something that
+  file forbids an unattended run, whatever the ticket says.
 
 Bail the same way in `--ci-implement` when satisfying the ticket requires editing
 `.github/workflows/`: the app token cannot push workflow files, so the run would fail at the final

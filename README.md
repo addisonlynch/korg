@@ -59,7 +59,8 @@ planning:
   # Every label on the team and when to apply it. The project owns it; korg never edits it.
   label_taxonomy: .korg/label-taxonomy.md
   # Optional. What an unattended run must never do, and what a ticket touching a sensitive area
-  # must say. roadmap --auto, to-tickets and groom-backlog refuse agent-ready work it forbids.
+  # must say. roadmap --auto, to-tickets and groom-backlog refuse agent-ready work it forbids, and
+  # agent-ticket --ci-implement bails on it.
   hazards: .korg/ticket-hazards.md
   # Where /korg:to-prd writes PRDs. A leading ~ is expanded.
   prd_dir: ~/vault/prds
