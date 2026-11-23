@@ -95,3 +95,23 @@ above, update the branch rulesets:
 
 Requiring `agent-review` alone is enough for the review gate. A different caller job id
 changes the prefix.
+
+## Agent runs
+
+korg has no reusable workflow for the agent runs: a project keeps its own
+`agent-dispatch.yml`, `agent-implement.yml` and `agent-respond.yml` and calls korg's skill and
+scripts from them.
+
+- Clone korg at the pinned tag into `$RUNNER_TEMP/korg`: unlike the review workflow's clone, it
+  sits outside the checkout, so the agent's `git add -A` never sweeps it into the PR. Then put
+  its scripts on the path before any step that calls one, since they call each other by bare
+  name: `echo "$RUNNER_TEMP/korg/plugins/korg/bin" >> "$GITHUB_PATH"`.
+- Pass `--plugin-dir "$RUNNER_TEMP/korg/plugins/korg"` to Claude, and prompt
+  `/korg:agent-ticket <TEAM>-N --ci-implement` or `/korg:agent-ticket --ci-respond`.
+- `agent-dispatch` runs `gh workflow run agent-implement.yml -f ticket=<TEAM>-N -f model=<model>`
+  and counts in-flight runs by the ticket id in their run names. So the file keeps that name,
+  declares `workflow_dispatch` inputs `ticket` and `model`, and has a `run-name` containing the
+  ticket (`implement <TEAM>-N`).
+- When claude-code-action mints its own token (no `github_token` input), it skips the run,
+  without failing it, if the workflow file differs from the default branch's copy. A change to
+  `agent-implement.yml` or `agent-respond.yml` then cannot be exercised before it merges.

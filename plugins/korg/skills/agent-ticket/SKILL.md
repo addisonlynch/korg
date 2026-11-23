@@ -1,6 +1,6 @@
 ---
 name: agent-ticket
-description: Work ONE specific Linear ticket - implement it and open a review-ready PR via /korg:open-pr --auto, then stop; or run one review fix round on a PR (--ci-respond). The caller supplies the ticket id; this skill does not pick. Use when the user invokes /korg:agent-ticket or asks an agent to work a specific ticket end to end.
+description: Work ONE specific Linear ticket - implement it and open a review-ready PR via /korg:open-pr --auto, then stop; or run one review fix round on a PR (--ci-respond). The caller supplies the ticket to implement; this skill does not pick. Use when the user invokes /korg:agent-ticket or asks an agent to work a specific ticket end to end.
 ---
 
 # Agent Ticket
@@ -27,9 +27,10 @@ Optional keys:
 
 ## Inputs
 
-**`TICKET_ID`**, required: an env var (CI) or the skill argument (`/korg:agent-ticket 42` or
+**`TICKET_ID`**, required except with `--ci-respond` (which works the PR it runs on and takes
+none): an env var (CI) or the skill argument (`/korg:agent-ticket 42` or
 `/korg:agent-ticket <TEAM>-42`), in any order with the flags. Strip the `<TEAM>-` prefix to get the
-number `N`. If it is empty, print `agent-ticket requires a ticket id — invoke as
+number `N`. Without `--ci-respond`, if it is empty, print `agent-ticket requires a ticket id — invoke as
 /korg:agent-ticket <TEAM>-N` and exit non-zero.
 
 ## Flags
