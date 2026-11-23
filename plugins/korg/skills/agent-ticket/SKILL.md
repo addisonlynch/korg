@@ -27,9 +27,10 @@ Optional keys:
 
 ## Inputs
 
-**`TICKET_ID`**, required: an env var (CI) or the skill argument (`/korg:agent-ticket 42` or
+**`TICKET_ID`**: an env var (CI) or the skill argument (`/korg:agent-ticket 42` or
 `/korg:agent-ticket <TEAM>-42`), in any order with the flags. Strip the `<TEAM>-` prefix to get the
-number `N`. If it is empty, print `agent-ticket requires a ticket id — invoke as
+number `N`. Outside `--ci-respond` (which finds its own: see its section) it is required: if it is
+empty, print `agent-ticket requires a ticket id — invoke as
 /korg:agent-ticket <TEAM>-N` and exit non-zero.
 
 ## Flags
