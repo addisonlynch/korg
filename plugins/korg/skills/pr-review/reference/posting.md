@@ -30,14 +30,6 @@ For multi-line comments, also pass `-F start_line=38 -f start_side="RIGHT"`. Alw
 If `gh api` exits non-zero, fall back to one top-level PR comment containing all findings, and
 note at the top that inline posting failed.
 
-Before posting anything, re-read the head SHA
-(`gh pr view {PR_NUMBER} --repo {REPO} --json headRefOid -q '.headRefOid'`). `gh pr diff` always
-reads the current head, so a push landing mid-review leaves the collected findings describing a
-commit the comments would misanchor to. On a mismatch with the step 1 SHA, stop: post nothing,
-leave the `agent-review` check open (the workflow's finalize step fails it as "Review did not
-complete", dispatching no fix round), and rely on the push having already queued a fresh review
-of the new head.
-
 1. Use `gh api` for every line-specific finding as shown above. Post one call per finding.
 2. Tag every inline comment with exactly one label on the first line:
    - `[blocker]`: the PR misses the linked ticket's intent (the fitness reviewer's verdict).
