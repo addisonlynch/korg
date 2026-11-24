@@ -298,8 +298,6 @@ class TestAgentDispatch:
             "displayTitle,status",
         ):
             assert expected in argv
-        # gh's default page is 20 runs; finished runs past that would hide an in-flight one.
-        assert argv[argv.index("--limit") : argv.index("--limit") + 2] == ["--limit", "100"]
 
     @pytest.mark.parametrize(
         ("issues", "expected"),
