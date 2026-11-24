@@ -108,6 +108,9 @@ scripts from them.
   name: `echo "$RUNNER_TEMP/korg/plugins/korg/bin" >> "$GITHUB_PATH"`.
 - Pass `--plugin-dir "$RUNNER_TEMP/korg/plugins/korg"` to Claude, and prompt
   `/korg:agent-ticket <TEAM>-N --ci-implement` or `/korg:agent-ticket --ci-respond`.
+- Set `KORG_AGENT_RUN: implement` in the implement step's `env`. It arms korg's Stop hook, which
+  sends the agent back once when it tries to end the run on its `agent/<TEAM>-N` branch with
+  neither a PR carrying `needs-review` nor a `WIP — bailed` commit. Leave it unset in respond.
 - `agent-dispatch` runs `gh workflow run agent-implement.yml -f ticket=<TEAM>-N -f model=<model>`
   and counts in-flight runs by the ticket id in their run names. So the file keeps that name,
   declares `workflow_dispatch` inputs `ticket` and `model`, and has a `run-name` containing the

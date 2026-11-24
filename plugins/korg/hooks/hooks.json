@@ -12,6 +12,18 @@
           }
         ]
       }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/agent-stop-check\"",
+            "timeout": 30,
+            "statusMessage": "Checking the implement run's finish line..."
+          }
+        ]
+      }
     ]
   }
 }
