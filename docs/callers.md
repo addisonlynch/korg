@@ -5,7 +5,7 @@ workflow under its own `.github/workflows/` and pins a korg tag. The reusable wo
 checks out korg at that same ref and runs its scripts from there; the project checkout
 supplies `.korg.yml`.
 
-Pin an exact release tag (`@v0.2.3`). korg's `v*` tags cannot be moved or deleted, and there is
+Pin an exact release tag (`@v0.2.4`). korg's `v*` tags cannot be moved or deleted, and there is
 no floating `@v1`.
 
 ## PR review
@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   review:
-    uses: addisonlynch/korg/.github/workflows/pr-review.yml@v0.2.3
+    uses: addisonlynch/korg/.github/workflows/pr-review.yml@v0.2.4
     secrets: inherit
     with:
       runner_target: ${{ vars.RUNNER_TARGET }}
@@ -77,7 +77,7 @@ permissions:
 
 jobs:
   guard:
-    uses: addisonlynch/korg/.github/workflows/base-guard.yml@v0.2.3
+    uses: addisonlynch/korg/.github/workflows/base-guard.yml@v0.2.4
 ```
 
 No inputs or secrets.
