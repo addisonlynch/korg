@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Stop hook for an unattended implement run. It blocks once; the second attempt always stops
+# (`stop_hook_active`), so the run's outcome stays agent-run-outcome's to classify.
+#
+# Inert outside KORG_AGENT_RUN=implement: a respond round works a PR whose needs-review the review
+# has already consumed, and an interactive session has a human to finish it.
+set -uo pipefail
+
+[ "${KORG_AGENT_RUN:-}" = implement ] || exit 0
+[ "$(jq -r '.stop_hook_active // false')" = true ] && exit 0
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null) || exit 0
+# A spike or a bail before the branch step ends on the default branch: nothing to check.
+[[ "$branch" =~ ^agent/[A-Z][A-Z0-9]*-[0-9]+$ ]] || exit 0
+# The rest of a bail is a Linear write, which this hook cannot read.
+[[ "$(git log -1 --pretty=%s)" == "WIP — bailed"* ]] && exit 0
+
+# A gh failure lets the agent stop: the classifier still reds a run that left nothing.
+pr=$(gh pr list --head "$branch" --state open --json number,labels \
+  --jq '.[0] // empty | "\(.number) \(any(.labels[]; .name == "needs-review"))"') \
+  || { echo "agent-stop-check: gh pr list failed; not checking" >&2; exit 0; }
+
+if [ -z "$pr" ]; then
+  reason="This implement run is ending with no open PR and no \`WIP — bailed\` commit on $branch. Finish Step 4 (/korg:open-pr --auto), or take the Step 3 bail (commit and push the WIP, then the Linear comment and Needs Human), before stopping."
+else
+  read -r number labelled <<<"$pr"
+  [ "$labelled" = true ] && exit 0
+  reason="PR #$number is open for $branch without the needs-review label, so the review never starts. Add it (gh api --method POST repos/\$GITHUB_REPOSITORY/issues/$number/labels -f 'labels[]=needs-review'), confirm it reads back, then stop."
+fi
+jq -n --arg r "$reason" '{decision: "block", reason: $r}'

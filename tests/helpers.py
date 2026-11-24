@@ -38,6 +38,7 @@ done
 case "$*" in
   # First: a GraphQL query text can mention `comments` and must not fall through to the POST.
   *graphql*)     body="${STUB_GH_GRAPHQL-}" ;;
+  *"pr list"*)   body="${STUB_GH_PR_LIST-}" ;;
   *"pr view"*)   body="${STUB_GH_PR_VIEW-}" ;;
   *check-runs*)  body="${STUB_GH_CHECKS-}" ;;
   # --paginate marks the comments LIST read (pr-comment-once's dedup probe); the POST
@@ -91,12 +92,19 @@ _HERMETIC = (
 
 
 def run(
-    script: str, args: list[str], stubs: Path, env: dict[str, str] | None = None, cwd: Path | None = None
+    script: str,
+    args: list[str],
+    stubs: Path,
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+    stdin: str | None = None,
 ) -> subprocess.CompletedProcess:
     """Run a real bin script with `stubs` ahead of the bin dir on PATH."""
     base = {k: v for k, v in os.environ.items() if k not in _HERMETIC}
     full = base | {"PATH": f"{stubs}:{BIN}:{os.environ['PATH']}", "STUB_DIR": str(stubs)} | (env or {})
-    return subprocess.run([str(BIN / script), *args], env=full, cwd=cwd, capture_output=True, text=True)
+    return subprocess.run(
+        [str(BIN / script), *args], env=full, cwd=cwd, input=stdin, capture_output=True, text=True
+    )
 
 
 def outputs(path: Path) -> dict[str, str]:
