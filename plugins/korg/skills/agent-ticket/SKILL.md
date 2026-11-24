@@ -134,8 +134,11 @@ git fetch origin "$BR" 2>/dev/null && ON_ORIGIN=1 || ON_ORIGIN=
 - **CI:** with `ON_ORIGIN` (a prior bail's WIP push), `git checkout -b "$BR" FETCH_HEAD`, merge the
   default branch in, read the tip commit and continue from it: a re-queue means the human resolved
   the blocker. Otherwise `git checkout -b "$BR" origin/<default branch>`.
-- **Local:** the checkout is the worktree `WT=.claude/worktrees/agent-<TEAM>-<N>`. If it already
-  exists, it holds a prior local bail's work: `cd` into it and continue from its state. Otherwise
+- **Local:** the checkout is the worktree
+  `WT="$(dirname "$(git rev-parse --path-format=absolute --git-common-dir)")/.claude/worktrees/agent-<TEAM>-<N>"`,
+  anchored at the main checkout's root so it resolves the same from any folder, that worktree
+  included. If the current folder is already `$WT`, continue there. If `$WT` exists, it holds a
+  prior local bail's work: `cd` into it and continue from its state. Otherwise
   create it from the origin branch with `ON_ORIGIN` (`git worktree add "$WT" -b "$BR" FETCH_HEAD`,
   then merge the default branch in), or from `origin/<default branch>` without, then `cd "$WT"` and
   run `commands.worktree_setup` when it is set.
