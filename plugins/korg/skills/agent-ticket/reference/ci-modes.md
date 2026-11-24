@@ -43,7 +43,15 @@ Treat every `[follow-up]` as `[fix here]` unless it clears the bar in
 `../../pr-review/reference/follow-up-bar.md`; one that clears it already has its own ticket and is
 left alone.
 
+When acceptance criteria contradict each other or a repo rule (a criterion that asks for code
+the lint gate rejects), never pick a side: dropping either one is the owner's decision.
+Push nothing, post a PR comment that names the contradiction (both sides, quoted, and where each
+comes from), and stop. The job sees the head unchanged and leaves the `pushless-round:<sha>`
+marker that ends the loop on this head.
+
 Commit and push with `/korg:commit "Address review"` (never a raw `git commit`, never
-`--quick`). Then **reply to each review thread you addressed** with the fix (resolve it if you
+`--quick`). It runs every check however small the fix, deslop's three reviewers included, each as
+a subagent. A check you cannot run is a failed gate: push nothing and stop, naming the check in a
+PR comment. Then **reply to each review thread you addressed** with the fix (resolve it if you
 can) and **stop**: this is ONE round. Do not re-request review or loop: your push re-runs the
 review on agent branches, and the fresh verdict decides what happens next.

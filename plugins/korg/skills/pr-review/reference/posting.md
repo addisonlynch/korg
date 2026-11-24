@@ -124,6 +124,14 @@ note at the top that inline posting failed.
      entry in `reference/fan-out.md`. **Never gating**: unlike the evidence and provenance lines,
      this one does not affect the verdict. Only the human can amend a ticket, so it is
      information for them, not work for a fix round.
+   - **Seventh line, present only when the fitness reviewer returned an `[unmet-human]` note:**
+     `Unmet (human): <criterion>`, one line per note. **Never gating**, like the criteria line:
+     a criterion only a human can meet is the owner's to meet, not a fix round's. Before
+     submitting the summary, tell the owner on the ticket: read its comments with the Linear
+     MCP's `list_comments`, and unless one already starts with `Unmet (human)`, post one with
+     `save_comment` that starts `Unmet (human) on <PR URL>:`, mentions the Linear user
+     `korg-config linear.owner` names, and quotes each criterion. With `linear.owner` unset,
+     skip the comment and say so in the summary's theme sentence.
    - **Then at most one sentence** on overall theme (e.g. "Migration looks safe; one missing
      index flagged inline."). Note here when findings were dropped by round memory.
    - All actual findings, including lists of affected items, files and line numbers, live in

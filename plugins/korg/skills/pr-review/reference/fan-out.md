@@ -44,14 +44,20 @@ Each finding a subagent returns must be a record with: `label` (one of `[blocker
      when `rules.testing_signal` is set: a criterion naming a test that rule excludes is void,
      because the author was right not to write it. A criterion checked only after deploy is void
      too: no diff can satisfy it.
+   - **Human-only criteria:** a criterion the PR leaves unmet that only a human can meet
+     (output from production, or an action the CI account cannot reach) is not a `[blocker]`:
+     no fix round can meet it. Return it as an **`[unmet-human]` note**: the criterion verbatim
+     and why only a human can meet it. It never gates; `reference/posting.md` step 5 says where
+     it goes.
    - **Intent pass (on top):** judge intent as well as letter: a criterion met in substance
      though unmet in wording counts as met once the substance is verified in the diff, and the
      per-criterion floor above always applies; a PR that satisfies every literal criterion while
      missing the point of the ticket is a `[blocker]`.
 
-   Returns only `[blocker]` findings, each naming the criterion or the part of the ticket's
-   intent the PR misses, anchored to the most relevant changed line or, for an outright
-   omission with no natural anchor, to the first changed file's first changed line. A PR that
+   Returns only `[blocker]` findings (plus any `[unmet-human]` notes), each naming the criterion
+   or the part of the ticket's intent the PR misses, anchored to the most relevant changed line
+   or, for an outright omission with no natural anchor, to the first changed file's first
+   changed line. A PR that
    accomplishes the ticket returns zero findings. Skipped entirely when there is no ticket
    context.
 2. **Correctness & conventions reviewer**: walks every changed file applying

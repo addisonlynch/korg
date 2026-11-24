@@ -9,17 +9,20 @@
 # Exit:    0 on a decision; 1 when the PR state is unreadable (fail loudly — a blind
 #          loop must never guess a round).
 #
-# Runs inside the PR branch checkout. There is no stored counter: the round budget is the
-# `Auto-Fix-Round:` commit trailers on `origin/<base>..HEAD`, counted newest-first and only
-# back to the most recent human-authored commit — a human commit resets the budget, and
-# human commits are never themselves counted (bot commits are recognizable by the `[bot]`
-# suffix GitHub puts in their author email).
+# Runs inside the PR branch checkout, with GH_TOKEN the workflow's GITHUB_TOKEN. There is no
+# stored counter: each round this gate starts leaves a `review-loop-round:<head-sha>` comment, and
+# the budget is those markers on commits since (and including) the last human-authored one — a
+# human commit resets the budget. Only markers the workflow token posted count: a commit's author
+# and trailers are whatever the pusher typed, and anyone can comment, but only a workflow run can
+# comment as that token's login. Bot commits carry the `[bot]` suffix in their author email.
 #
 # For `loop`, every guard keys off the PR's CURRENT state rather than the triggering
 # event, so queued duplicate triggers self-neutralize.
 set -euo pipefail
 
 MAX_ROUNDS=3
+# The author of every comment posted with a workflow run's GITHUB_TOKEN.
+JOB_LOGIN="github-actions[bot]"
 
 pr="${1:?usage: review-loop-gate <pr-number> <loop|human>}"
 source="${2:?usage: review-loop-gate <pr-number> <loop|human>}"
@@ -75,28 +78,45 @@ forced=$(jq -r '.external_id // empty' <<<"$check")
 [ "$forced" != "forced" ] || { emit skip "" "the review never published a verdict — no findings to fix"; exit 0; }
 
 # A round that ends without pushing leaves a `pushless-round:<sha>` marker on the PR. Without a
-# push it never reaches the trailer count, so a duplicate trigger on that head would rerun a
-# round that already found nothing it could change.
-comments=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr/comments" --jq '.[].body') \
+# push the head does not change, so a duplicate trigger on that head would rerun a round that
+# already found nothing it could change. Any author's marker counts here: stopping is the safe
+# direction, and pr-comment-once would not post the job's own over a copy.
+comments=$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$pr/comments" \
+  --jq '.[] | [.user.login, .body] | @json') \
   || { echo "::error::could not read comments on PR #$pr"; exit 1; }
 if grep -qF -- "pushless-round:$head_sha" <<<"$comments"; then
   emit skip "" "a round on this head already ended without pushing — a human needs to act"
   exit 0
 fi
 
-# The budget: Auto-Fix-Round trailers since the last human-authored commit.
+# A marker on the current head is a round that started here and never pushed (it crashed), so a
+# retry is that same round again, not a new one.
+marked=$(jq -r --arg l "$JOB_LOGIN" 'select(.[0] == $l) | .[1]' <<<"$comments" \
+  | grep -oE 'review-loop-round:[0-9a-f]{40}' | cut -d: -f2 || true)
 git fetch -q origin "$base"
 rounds=0
-while IFS=$'\t' read -r email trailer; do
-  case "$email" in
-    *"[bot]"*) [ -z "$trailer" ] || rounds=$((rounds + 1)) ;;
-    *) break ;;
-  esac
-done < <(git log "origin/$base..HEAD" --first-parent \
-  --format='%ae%x09%(trailers:key=Auto-Fix-Round,valueonly,separator=;)')
+while IFS=$'\t' read -r sha email; do
+  if [ "$sha" != "$head_sha" ] && grep -qxF -- "$sha" <<<"$marked"; then
+    rounds=$((rounds + 1))
+  fi
+  case "$email" in *"[bot]"*) ;; *) break ;; esac
+done < <(git log "origin/$base..HEAD" --first-parent --format='%H%x09%ae')
 
 if [ "$rounds" -ge "$MAX_ROUNDS" ]; then
   emit escalate "" "$rounds rounds spent since the last human touch"
-else
-  emit round "$((rounds + 1))"
+  exit 0
 fi
+
+# Spend the round before announcing it: a round whose marker cannot be written must not run, and
+# a marker posted under another login would never count, leaving the loop uncapped.
+round=$((rounds + 1))
+if ! grep -qxF -- "$head_sha" <<<"$marked"; then
+  author=$(gh api "repos/$GITHUB_REPOSITORY/issues/$pr/comments" -X POST --jq '.user.login' \
+    -f body="🔁 Review loop round $round of $MAX_ROUNDS on ${head_sha:0:7}.
+
+<!-- ${GITHUB_REPOSITORY#*/}:review-loop-round:$head_sha -->") \
+    || { echo "::error::could not record round $round on PR #$pr"; exit 1; }
+  [ "$author" = "$JOB_LOGIN" ] \
+    || { echo "::error::round marker posted as '$author', not $JOB_LOGIN — GH_TOKEN must be the workflow's GITHUB_TOKEN"; exit 1; }
+fi
+emit round "$round"

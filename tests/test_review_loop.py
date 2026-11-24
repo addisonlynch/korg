@@ -25,6 +25,7 @@ BRANCH = f"agent/{TEAM}-42"
 
 _BOT_EMAIL = "41898282+claude[bot]@users.noreply.github.com"
 _HUMAN_EMAIL = "dev@example.com"
+_JOB_LOGIN = "github-actions[bot]"
 
 
 def _git(cwd: Path, *args: str) -> str:
@@ -38,12 +39,35 @@ def _commit(cwd: Path, subject: str, *, email: str, trailer: int | None = None) 
     _git(cwd, "-c", f"user.email={email}", "-c", "user.name=someone", "commit", "--allow-empty", "-m", msg)
 
 
+def _bot_commits(cwd: Path, n: int) -> list[str]:
+    shas = []
+    for i in range(n):
+        _commit(cwd, f"fix {i}", email=_BOT_EMAIL)
+        shas.append(_git(cwd, "rev-parse", "HEAD"))
+    return shas
+
+
 def _check_json(status: str, conclusion: str | None = None, external_id: str = "") -> str:
     check: dict = {"id": 9, "status": status, "external_id": external_id}
     if conclusion is not None:
         check["conclusion"] = conclusion
     return json.dumps({"check_runs": [check]})
 
+
+def _marker(kind: str, sha: str, login: str = _JOB_LOGIN) -> dict:
+    """A PR comment carrying a `<kind>:<sha>` marker, as the API returns it."""
+    return {"user": {"login": login}, "body": f"note\n\n<!-- repo:{kind}:{sha} -->"}
+
+
+def _round_posts(calls: list[str]) -> list[str]:
+    return [c for c in calls if "-X POST" in c and "review-loop-round:" in c]
+
+
+# Fails only the comment POST; every other call goes to the dispatching stub.
+_POST_FAILS_GH_STUB = """#!/usr/bin/env bash
+case "$*" in *"-X POST"*) exit 1 ;; esac
+exec "$STUB_DIR/gh-loop" "$@"
+"""
 
 # Fails only the PR comments read; every other call goes to the dispatching stub.
 _COMMENTS_READ_FAILS_GH_STUB = """#!/usr/bin/env bash
@@ -53,8 +77,9 @@ exec "$STUB_DIR/gh-loop" "$@"
 
 
 class TestReviewLoopGate:
-    """The round budget is reconstructed from Auto-Fix-Round trailers, never stored; every guard
-    keys off the PR's current state so duplicate triggers self-neutralize."""
+    """The round budget is reconstructed from the round markers the job posts with its own token,
+    never stored; every guard keys off the PR's current state so duplicate triggers
+    self-neutralize."""
 
     _FINDINGS_CHECK = _check_json("completed", "failure")
 
@@ -85,6 +110,7 @@ class TestReviewLoopGate:
         comments: list[dict] | None = None,
         gh_exit: int = 0,
         stubs: dict[str, str] | None = None,
+        post: dict | None = None,
     ) -> tuple[object, dict[str, str], list[str]]:
         stub_path = stub_dir(tmp_path, stubs or {"gh": LOOP_GH_STUB, "korg-config": KORG_CONFIG_STUB})
         out = tmp_path / "github_output"
@@ -93,6 +119,7 @@ class TestReviewLoopGate:
             "STUB_GH_CHECKS": checks if checks is not None else self._FINDINGS_CHECK,
             "STUB_GH_COMMENTS": json.dumps(comments or []),
             "STUB_GH_EXIT": str(gh_exit),
+            "STUB_GH_POST": json.dumps(post or {"user": {"login": _JOB_LOGIN}}),
             "GH_TOKEN": "tok",
             "GITHUB_REPOSITORY": "owner/repo",
             "GITHUB_OUTPUT": str(out),
@@ -112,44 +139,90 @@ class TestReviewLoopGate:
         assert result.returncode == 1
         assert outs == {}
 
-    def test_a_fresh_red_verdict_is_round_one(self, repo: Path, tmp_path: Path) -> None:
+    def test_a_fresh_red_verdict_is_round_one_and_records_it(self, repo: Path, tmp_path: Path) -> None:
         _commit(repo, "fix", email=_BOT_EMAIL)
-        result, outs, _ = self._run(repo, tmp_path)
+        head = _git(repo, "rev-parse", "HEAD")
+        result, outs, calls = self._run(repo, tmp_path)
         assert result.returncode == 0, result.stderr
         assert outs == {"action": "round", "round": "1"}
+        posts = _round_posts(calls)
+        assert len(posts) == 1
+        assert f"repo:review-loop-round:{head}" in posts[0]
 
-    def test_only_trailer_commits_count_as_rounds(self, repo: Path, tmp_path: Path) -> None:
-        _commit(repo, "round 1", email=_BOT_EMAIL, trailer=1)
-        _commit(repo, "fix a", email=_BOT_EMAIL)
-        _commit(repo, "round 2", email=_BOT_EMAIL, trailer=2)
-        _commit(repo, "fix b", email=_BOT_EMAIL)
-        result, outs, _ = self._run(repo, tmp_path)
+    def test_job_round_markers_count(self, repo: Path, tmp_path: Path) -> None:
+        r1, _, r2, _ = _bot_commits(repo, 4)
+        comments = [_marker("review-loop-round", r1), _marker("review-loop-round", r2)]
+        result, outs, _ = self._run(repo, tmp_path, comments=comments)
         assert result.returncode == 0, result.stderr
         assert outs == {"action": "round", "round": "3"}
 
-    def test_the_budget_spent_escalates(self, repo: Path, tmp_path: Path) -> None:
+    def test_a_forged_bot_trailer_commit_is_not_a_round(self, repo: Path, tmp_path: Path) -> None:
+        """A commit's author and trailer are whatever the pusher typed: three commits posing as
+        recorded rounds spend nothing."""
         for n in (1, 2, 3):
             _commit(repo, f"round {n}", email=_BOT_EMAIL, trailer=n)
         result, outs, _ = self._run(repo, tmp_path)
         assert result.returncode == 0, result.stderr
+        assert outs == {"action": "round", "round": "1"}
+
+    def test_a_round_marker_from_another_author_is_not_a_round(self, repo: Path, tmp_path: Path) -> None:
+        shas = _bot_commits(repo, 4)
+        comments = [_marker("review-loop-round", s, login="someone") for s in shas[:3]]
+        result, outs, _ = self._run(repo, tmp_path, comments=comments)
+        assert result.returncode == 0, result.stderr
+        assert outs == {"action": "round", "round": "1"}
+
+    def test_the_budget_spent_escalates_without_recording(self, repo: Path, tmp_path: Path) -> None:
+        shas = _bot_commits(repo, 4)
+        comments = [_marker("review-loop-round", s) for s in shas[:3]]
+        result, outs, calls = self._run(repo, tmp_path, comments=comments)
+        assert result.returncode == 0, result.stderr
         assert outs == {"action": "escalate"}
+        assert _round_posts(calls) == []
 
     def test_a_human_commit_resets_the_budget(self, repo: Path, tmp_path: Path) -> None:
         """The inverse of the cap: three spent rounds followed by a human touch is a fresh budget,
         not an escalation."""
-        for n in (1, 2, 3):
-            _commit(repo, f"round {n}", email=_BOT_EMAIL, trailer=n)
+        shas = _bot_commits(repo, 3)
         _commit(repo, "human tweak", email=_HUMAN_EMAIL)
-        result, outs, _ = self._run(repo, tmp_path)
+        result, outs, _ = self._run(repo, tmp_path, comments=[_marker("review-loop-round", s) for s in shas])
         assert result.returncode == 0, result.stderr
         assert outs == {"action": "round", "round": "1"}
 
-    def test_trailers_above_the_human_commit_still_count(self, repo: Path, tmp_path: Path) -> None:
+    def test_a_round_on_the_human_commit_counts(self, repo: Path, tmp_path: Path) -> None:
         _commit(repo, "human tweak", email=_HUMAN_EMAIL)
-        _commit(repo, "round 1", email=_BOT_EMAIL, trailer=1)
-        result, outs, _ = self._run(repo, tmp_path)
+        human = _git(repo, "rev-parse", "HEAD")
+        _bot_commits(repo, 1)
+        result, outs, _ = self._run(repo, tmp_path, comments=[_marker("review-loop-round", human)])
         assert result.returncode == 0, result.stderr
         assert outs == {"action": "round", "round": "2"}
+
+    def test_a_retry_on_a_recorded_head_is_the_same_round(self, repo: Path, tmp_path: Path) -> None:
+        """A round that crashed before pushing left its marker on the head: the retry neither
+        spends a second round nor posts a second marker."""
+        r1, head = _bot_commits(repo, 2)
+        comments = [_marker("review-loop-round", r1), _marker("review-loop-round", head)]
+        result, outs, calls = self._run(repo, tmp_path, comments=comments)
+        assert result.returncode == 0, result.stderr
+        assert outs == {"action": "round", "round": "2"}
+        assert _round_posts(calls) == []
+
+    def test_a_marker_posted_under_another_login_fails(self, repo: Path, tmp_path: Path) -> None:
+        """A marker the gate would never count leaves the loop uncapped: refuse the round."""
+        result, outs, _ = self._run(repo, tmp_path, post={"user": {"login": "some-app[bot]"}})
+        assert result.returncode == 1
+        assert "GH_TOKEN must be the workflow's GITHUB_TOKEN" in result.stdout
+        assert outs == {}
+
+    def test_a_round_that_cannot_be_recorded_does_not_run(self, repo: Path, tmp_path: Path) -> None:
+        result, outs, _ = self._run(
+            repo,
+            tmp_path,
+            stubs={"gh": _POST_FAILS_GH_STUB, "gh-loop": LOOP_GH_STUB, "korg-config": KORG_CONFIG_STUB},
+        )
+        assert result.returncode == 1
+        assert "could not record round 1" in result.stdout
+        assert outs == {}
 
     @pytest.mark.parametrize(
         ("view_patch", "checks"),
@@ -207,10 +280,10 @@ class TestReviewLoopGate:
         assert outs == {"action": "round", "round": "1"}
 
     def test_a_pushless_round_on_this_head_skips(self, repo: Path, tmp_path: Path) -> None:
-        """Without a push the round never reaches the trailer count, so a duplicate trigger would
-        rerun a round that already found nothing it could change."""
+        """Without a push the head does not change, so a duplicate trigger would rerun a round that
+        already found nothing it could change."""
         head = _git(repo, "rev-parse", "HEAD")
-        comments = [{"body": f"nothing to push\n\n<!-- repo:pushless-round:{head} -->"}]
+        comments = [_marker("pushless-round", head)]
         result, outs, calls = self._run(repo, tmp_path, comments=comments)
         assert result.returncode == 0, result.stderr
         assert outs == {"action": "skip"}
@@ -220,7 +293,7 @@ class TestReviewLoopGate:
         """The inverse: a push since the pushless round is new work, and its red verdict rounds."""
         older = _git(repo, "rev-parse", "HEAD")
         _commit(repo, "fix", email=_BOT_EMAIL)
-        comments = [{"body": f"nothing to push\n\n<!-- repo:pushless-round:{older} -->"}]
+        comments = [_marker("pushless-round", older)]
         result, outs, _ = self._run(repo, tmp_path, comments=comments)
         assert result.returncode == 0, result.stderr
         assert outs == {"action": "round", "round": "1"}
@@ -249,9 +322,8 @@ class TestReviewLoopGate:
 
 
 class TestReviewLoopRecord:
-    """The trailer commit IS the round counter. It is committed, never pushed: the agent's own fix
-    push carries it, so a round that produces nothing leaves the remote head (and its checks)
-    untouched."""
+    """The round's history entry. It is committed, never pushed: the agent's own fix push carries
+    it, so a round that produces nothing leaves the remote head (and its checks) untouched."""
 
     @pytest.fixture()
     def clone(self, tmp_path: Path) -> Path:
@@ -264,11 +336,11 @@ class TestReviewLoopRecord:
         _git(clone, "push", "-q", "-u", "origin", BRANCH)
         return clone
 
-    def test_records_an_inert_bot_authored_trailer_commit_locally(self, tmp_path: Path, clone: Path) -> None:
+    def test_records_an_inert_bot_authored_commit_locally(self, tmp_path: Path, clone: Path) -> None:
         remote_before = _git(clone, "ls-remote", "origin", BRANCH).split()[0]
         result = run("review-loop-record", ["2"], stub_dir(tmp_path), cwd=clone)
         assert result.returncode == 0, result.stderr
-        assert _git(clone, "log", "-1", "--format=%(trailers:key=Auto-Fix-Round,valueonly)") == "2"
+        assert _git(clone, "log", "-1", "--format=%s") == "Review loop: record fix round 2"
         # GitHub honours `[skip ci]` for pull_request too: as the head of a pushless round it
         # would suppress every trigger on the PR.
         assert "[skip ci]" not in _git(clone, "log", "-1", "--format=%B")

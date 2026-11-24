@@ -12,7 +12,7 @@ on:
   workflow_call:
     inputs:
       runner_target:
-        description: "'' or 'github' runs the reviewer on ubuntu-latest; any other value is a self-hosted runner label."
+        description: "'' or 'github' runs the review jobs on ubuntu-latest; any other value is a self-hosted runner label."
         type: string
         default: ''
       claude_executable:
@@ -42,8 +42,10 @@ jobs:
     if: >-
       github.event_name == 'pull_request_review' &&
       github.event.review.user.login == (inputs.human_reviewer || github.repository_owner)
-    # Hosted: must not queue behind a self-hosted pool's multi-minute Claude jobs.
-    runs-on: ubuntu-latest
+    # Same runner as claude-review: an org that cannot run hosted jobs must still get the human
+    # verdict. A few API calls, so the short timeout bounds a queue behind the Claude jobs.
+    runs-on: ${{ (inputs.runner_target == '' || inputs.runner_target == 'github') && 'ubuntu-latest' || fromJSON(format('["self-hosted","{0}"]', inputs.runner_target)) }}
+    timeout-minutes: 5
     permissions:
       pull-requests: read
       checks: write
