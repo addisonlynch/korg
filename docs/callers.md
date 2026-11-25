@@ -5,7 +5,7 @@ workflow under its own `.github/workflows/` and pins a korg tag. The reusable wo
 checks out korg at that same ref and runs its scripts from there; the project checkout
 supplies `.korg.yml`.
 
-Pin an exact release tag (`@v0.2.6`). korg's `v*` tags cannot be moved or deleted, and there is
+Pin an exact release tag (`@v0.2.7`). korg's `v*` tags cannot be moved or deleted, and there is
 no floating `@v1`.
 
 ## PR review
@@ -32,7 +32,7 @@ permissions:
 
 jobs:
   review:
-    uses: addisonlynch/korg/.github/workflows/pr-review.yml@v0.2.6
+    uses: addisonlynch/korg/.github/workflows/pr-review.yml@v0.2.7
     secrets: inherit
     with:
       runner_target: ${{ vars.RUNNER_TARGET }}
@@ -49,7 +49,7 @@ review.
 |---|---|---|
 | `runner_target` | `''` | Runner for both `claude-review` and `human-verdict`. `''` or `github`: `ubuntu-latest`. Anything else: `[self-hosted, <value>]`. |
 | `claude_executable` | `''` | Pre-installed Claude Code binary on a self-hosted runner. Set it on any self-hosted runner whose jobs share a `$HOME`: without it the action installs Claude per job into that `$HOME`, and concurrent jobs collide. Ignored on hosted runners. |
-| `human_reviewer` | repository owner | Login whose submitted review is the verdict on workflow-file PRs. Set it when the owner is an organization. |
+| `human_reviewer` | repository owner | Login whose approving or changes-requested review is the verdict on workflow-file PRs; a comment review is none. Set it when the owner is an organization. |
 | `linear_mcp_server` | `linear` | Server name in the project's `.mcp.json`; the reviewer's allowlist grants `mcp__<name>`. |
 
 | Secret | Required | Used for |
@@ -77,7 +77,7 @@ permissions:
 
 jobs:
   guard:
-    uses: addisonlynch/korg/.github/workflows/base-guard.yml@v0.2.6
+    uses: addisonlynch/korg/.github/workflows/base-guard.yml@v0.2.7
 ```
 
 No inputs or secrets.

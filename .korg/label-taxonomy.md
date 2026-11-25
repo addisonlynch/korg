@@ -30,8 +30,8 @@ coexists with `agent-ready`.
 
 ## Dispatch and provenance
 
-- `agent-ready`: an agent may take this. Set by a human, or by pr-review on a mechanical
-  follow-up. The runner removes it when it claims the ticket. Means claimable, not claimed.
+- `agent-ready`: an agent may take this. Set by a human only, never by pr-review. The
+  runner removes it when it claims the ticket. Means claimable, not claimed.
 - `auto-filed`: created by a machine (pr-review follow-ups). Provenance, not a hold.
 
 ## Not labels

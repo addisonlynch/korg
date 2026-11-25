@@ -67,14 +67,13 @@ taxonomy at `planning.label_taxonomy`.
 - **Area labels**: you have the diff, so the area is unambiguous: apply the taxonomy's labels
   for the changed path. If nothing clearly fits, apply nothing.
 - **`bug`**: when the finding is a defect rather than a gap or an enhancement.
-- **`agent-ready` + a `model:*` label**: **only** when both hold:
-  1. You wrote real acceptance criteria into the ticket. An `agent-ready` ticket without
-     criteria bounces at the agent runner's claim gate and burns a whole dispatch cycle.
-  2. The finding is mechanical: the "net-new gaps in an untouched subsystem" or "feature
-     expansion beyond the linked ticket" categories above.
-
-  Route from `model:opus` / `model:sonnet` / `model:haiku`. Never `model:fable`: it marks
-  interactive-only work, so it cannot coexist with `agent-ready`.
+- **Never `agent-ready`.** Queueing a ticket for an unattended agent run is a human act; a
+  diff the reviewer read must not be able to start one.
+- **A `model:*` label**: when the finding is mechanical (the "net-new gaps in an untouched
+  subsystem" or "feature expansion beyond the linked ticket" categories above) and you wrote
+  real acceptance criteria into the ticket, so a human can queue it as is. Route from
+  `model:opus` / `model:sonnet` / `model:haiku`; never `model:fable`, which marks
+  interactive-only work.
 
   The other two categories are not agent-workable: file them for a human, and use `spike`
   when the deliverable is a document rather than a diff.
