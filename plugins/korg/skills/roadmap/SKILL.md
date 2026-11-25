@@ -116,8 +116,8 @@ Otherwise file it without `agent-ready`, created in state `Needs Human` and assi
 unset, stop.
 
 On an `--auto` item, the line after the filer line, before any heading, is `Default: <X>,
-because <Y>` on a queued ticket, and on a `Needs Human` one what it needs from the owner and your
-default when you have one.
+because <Y>` on both paths, or `Default: none, because <Y>` on a `Needs Human` ticket with no
+default to offer. On a `Needs Human` ticket the next line says what it needs from the owner.
 
 ---
 
