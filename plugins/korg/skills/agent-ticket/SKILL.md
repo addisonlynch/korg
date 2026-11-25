@@ -20,8 +20,7 @@ Optional keys:
   the main checkout's root.
 - `rules.testing_signal`: which tests should exist.
 - `agent.extensions`: a project file of extra steps (a skill to load for a ticket label, how to
-  capture evidence, a nudge to post after the PR opens). Read it at Step 2 and follow each step
-  where it says it applies.
+  capture evidence, a nudge to post after the PR opens); see Step 2.
 - `evidence`: the change types whose PR must carry run output (see Step 3).
 - `planning.hazards`: what an unattended run must never do (see the decision gate).
 
@@ -78,6 +77,11 @@ finish that PR; retrying a ticket that has one is an interactive decision.
 
 Read the full ticket, `agent.extensions` when it is set, and in `--ci-implement` the
 `planning.hazards` file when it is set.
+
+When `agent.extensions` is set, each of its steps whose condition this ticket and mode meet (a
+label it carries, the mode you run in) is required, even when the change looks too small to need
+it. Do the ones placed before planning now, and the rest where the file places them. Name each
+such step in the implementation notes, done or skipped with the reason the file allows.
 
 ### Spike gate
 

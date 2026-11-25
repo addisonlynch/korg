@@ -404,12 +404,32 @@ class TestReviewLoopEscalate:
                         "nodes": [
                             {
                                 "isResolved": False,
+                                "isOutdated": False,
                                 "comments": {
                                     "nodes": [{"body": "[fix here] broken thing", "path": "a.py", "line": 12}]
                                 },
                             },
                             {
+                                "isResolved": False,
+                                "isOutdated": True,
+                                "comments": {
+                                    "nodes": [
+                                        {"body": "[fix here] an earlier round's, fixed since", "path": "c.py", "line": None}
+                                    ]
+                                },
+                            },
+                            {
+                                "isResolved": False,
+                                "isOutdated": False,
+                                "comments": {
+                                    "nodes": [
+                                        {"body": "[fix here] an earlier round's, still open", "path": "d.py", "line": 9}
+                                    ]
+                                },
+                            },
+                            {
                                 "isResolved": True,
+                                "isOutdated": False,
                                 "comments": {"nodes": [{"body": "[nit] fixed already", "path": "b.py", "line": 3}]},
                             },
                         ]
@@ -469,6 +489,8 @@ class TestReviewLoopEscalate:
         assert "[fix here] broken thing" in pr_comment
         assert "a.py:12" in pr_comment
         assert "[nit] fixed already" not in pr_comment
+        assert "an earlier round's, fixed since" not in pr_comment
+        assert "an earlier round's, still open" in pr_comment
         assert "<!-- repo:review-loop-escalated:sha-head -->" in pr_comment
         # The assignee is resolved BY NAME: under CI's token `viewer` is the app actor, and
         # assigning it would move the state while notifying nobody.
@@ -506,6 +528,7 @@ class TestReviewLoopEscalate:
                             "nodes": [
                                 {
                                     "isResolved": False,
+                                    "isOutdated": False,
                                     "comments": {"nodes": [{"body": "x" * 40000, "path": "a.py", "line": 1}]},
                                 }
                             ]
