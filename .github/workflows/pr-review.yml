@@ -20,7 +20,7 @@ on:
         type: string
         default: ''
       human_reviewer:
-        description: Login whose submitted review is the verdict on workflow-file PRs. Defaults to the repository owner.
+        description: Login whose approving or changes-requested review is the verdict on workflow-file PRs; a comment review is none. Defaults to the repository owner.
         type: string
         default: ''
       linear_mcp_server:
@@ -37,11 +37,13 @@ on:
 
 jobs:
   # Publishes the agent-review check on workflow-file PRs off the human reviewer's actual
-  # review; on every other PR the bot's own verdict owns the check.
+  # review; on every other PR the bot's own verdict owns the check. A plain comment review is no
+  # verdict, and is filtered here rather than in the step so its run cannot cancel an approval's.
   human-verdict:
     if: >-
       github.event_name == 'pull_request_review' &&
-      github.event.review.user.login == (inputs.human_reviewer || github.repository_owner)
+      github.event.review.user.login == (inputs.human_reviewer || github.repository_owner) &&
+      contains(fromJSON('["approved","changes_requested"]'), github.event.review.state)
     # Same runner as claude-review: an org that cannot run hosted jobs must still get the human
     # verdict. A few API calls, so the short timeout bounds a queue behind the Claude jobs.
     runs-on: ${{ (inputs.runner_target == '' || inputs.runner_target == 'github') && 'ubuntu-latest' || fromJSON(format('["self-hosted","{0}"]', inputs.runner_target)) }}
@@ -92,6 +94,9 @@ jobs:
       (github.event.action == 'synchronize' && startsWith(github.event.pull_request.head.ref, 'agent/') &&
        !contains(github.event.pull_request.labels.*.name, 'no-auto-review'))
     runs-on: ${{ (inputs.runner_target == '' || inputs.runner_target == 'github') && 'ubuntu-latest' || fromJSON(format('["self-hosted","{0}"]', inputs.runner_target)) }}
+    # --max-turns bounds turns, not wall clock; without this a hung reviewer holds the runner
+    # for GitHub's 360-minute default.
+    timeout-minutes: 60
     permissions:
       contents: read
       pull-requests: write
