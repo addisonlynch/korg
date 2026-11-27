@@ -53,18 +53,16 @@ For each `todo` child `<C>` in `ORDER`:
    each criterion, the change or test that meets it. A criterion nothing meets goes back to the
    same subagent once; still unmet, it is an epic bail.
 3. **Commit through the gates.** Invoke the `korg:commit` skill with `"<C>: <C's title>" --ticket <C>`
-   and run every gate it lists, for each child. Having run it for an earlier child does not
-   count: each child's diff gets its own test-review, deslop fan-out and security triggers.
-   Never `git commit` a child or write its `Ticket:` trailer yourself, since the trailer is
-   what tells `agent-epic check` that the gates ran. Its scoped test
-   run reads the whole branch against the default branch, so it tests what the earlier children
-   built as well as this one. A gate still red after two fix attempts is an epic bail.
+   and run every gate it lists, for each child: having run it for an earlier child does not
+   count. When the child's diff touches a test file, run Gate 2 in a fresh foreground subagent
+   that invokes `/korg:test-review` and returns its findings. Never `git commit` a child or write
+   its `Ticket:` trailer yourself, since the trailer is what tells `agent-epic check` that the
+   gates ran. The scoped test run reads the whole branch against the default branch, so it tests
+   what the earlier children built as well as this one. A gate still red after two fix attempts
+   is an epic bail.
 4. **Confirm.** `agent-epic check <P>` must now print `<C> done`. Otherwise, epic bail.
 
-Keep each subagent's notes, headed by its child's id, for Step 5. End each child's notes with a
-`Gates:` line naming every `/korg:commit` gate and whether it ran for that child's commit, with
-the reason for any skip (`test-review: skipped, no test file changed`). The review reads it as
-the child's gate provenance.
+Keep each subagent's notes, headed by its child's id, for Step 5.
 
 ## 4. The whole epic
 
