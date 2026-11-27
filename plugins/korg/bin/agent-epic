@@ -22,7 +22,8 @@
 # its blocker's code. The trailer records that the child's commit gates passed.
 #
 # A WIP commit marks where a run stopped. One that changed files holds ungated work, so a finished
-# epic has a gated child commit after it; an empty one holds nothing.
+# epic has a gated child commit after it; an empty one holds nothing. That order is all this
+# checks: the resume reverts a dirty WIP commit (epic.md) so no gated commit takes its code unread.
 set -uo pipefail
 
 MAX_CHILDREN=4
@@ -50,7 +51,6 @@ resp=$(curl -sS --fail --max-time 20 -X POST https://api.linear.app/graphql \
   || { echo "agent-epic: could not read $id from Linear" >&2; exit 2; }
 children=$(jq -ce '.data.issue.children.nodes | select(. != null)' <<<"$resp") \
   || { echo "agent-epic: could not read $id: $(jq -c '.errors // "empty response"' <<<"$resp")" >&2; exit 2; }
-[ "$(jq length <<<"$children")" -gt 0 ] || { echo "agent-epic: $id has no children, so it is not an epic" >&2; exit 3; }
 
 # {order, blockers} or {errors}. A blocking relation reads as `issue` blocks `relatedIssue`, so a
 # child's blockers are its inverse relations of type `blocks`.
@@ -79,7 +79,7 @@ plan=$(jq -c --argjson max "$MAX_CHILDREN" '
           | if $n == null then . else {out: ($s.out + [$n.id]), left: [$s.left[] | select(.id != $n.id)]} end)
       | if .left != [] then {errors: ["blocked-by cycle among \(.left | map(.id) | join(", "))"]}
         else {order: .out, blockers: ($g | map({key: .id, value: .blockers}) | from_entries)} end
-    end' <<<"$children")
+    end' <<<"$children") || { echo "agent-epic: could not plan $id's children" >&2; exit 2; }
 
 if jq -e 'has("none")' <<<"$plan" >/dev/null; then
   echo "agent-epic: $id has no open children, so it is not an epic" >&2

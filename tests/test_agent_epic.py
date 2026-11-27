@@ -133,6 +133,12 @@ class TestOrder:
     def test_a_linear_failure_is_a_read_error_not_a_refusal(self, tmp_path: Path) -> None:
         assert _run(tmp_path, "order", CHAIN, curl_exit=22).returncode == 2
 
+    def test_a_child_linear_returns_malformed_is_a_read_error(self, tmp_path: Path) -> None:
+        malformed = {**child(11), "labels": None}
+        result = _run(tmp_path, "order", [malformed])
+        assert result.returncode == 2
+        assert result.stdout == ""
+
 
 class TestCheck:
     @pytest.fixture()

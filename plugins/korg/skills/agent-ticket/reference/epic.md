@@ -10,6 +10,9 @@ Anything this file does not cover is an **epic bail**, not something to work aro
 
 ## Epic bail
 
+A bail in pre-flight (§1), before the branch exists, is Step 2's bail on the parent instead,
+naming the child, and exits 0. Every later bail is this one:
+
 1. When every child is already done (`agent-epic check <P>` lists none as `todo`), first discard
    what is uncommitted (`git checkout -- . && git clean -fd`): it is a parent-acceptance fix
    that never passed the gates, and a resume finds that gap again. Then commit and push
@@ -36,7 +39,9 @@ Re-queueing the parent resumes from the next child that is not done.
 Take Step 2's **Branch** section as written, with `<P>`'s number: `BR=agent/<P>`.
 
 With `ON_ORIGIN` (a prior bail's push), run `agent-epic check <P>`. Each child it prints `done` is
-skipped. Before building the first `todo` child, run `commands.test` on the merged tree: a red
+skipped. Revert each `WIP — bailed` commit after the last `Ticket:` commit that changed files
+(`git diff --quiet <sha>^ <sha>` exits 1), newest first, with `git revert --no-edit <sha>`: its
+work never passed the gates, so the child it belonged to is built again from the gated tree. Before building the first `todo` child, run `commands.test` on the merged tree: a red
 run is an epic bail, because a done child is only trusted while the tests above it pass.
 
 ## 3. Each child, in order
