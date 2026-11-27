@@ -38,7 +38,8 @@ Re-queueing the parent resumes from the next child that is not done.
 Take Step 2's **Branch** section as written, with `<P>`'s number: `BR=agent/<P>`.
 
 With `ON_ORIGIN` (a prior bail's push), run `agent-epic check <P>`. Each child it prints `done` is
-skipped. Before building the first `todo` child, run `commands.test` on the merged tree: a red
+skipped. Any `agent-epic:` line on its stderr is a rule the branch breaks, and an epic bail that
+quotes it. Before building the first `todo` child, run `commands.test` on the merged tree: a red
 run is an epic bail, because a done child is only trusted while the tests above it pass.
 
 ## 3. Each child, in order
@@ -87,6 +88,7 @@ Run Step 4 as written, with these differences:
   `## What` has one bullet per child, in `ORDER`.
 - The implementation notes comment holds one section per child, in `ORDER`, then the parent
   acceptance result.
+- A bail inside Step 4 is the epic bail, not Step 3's.
 
 Review and fix rounds then run as for any agent PR. A fix round's commits carry no trailer, and
 need none: the children are already on the branch.
