@@ -206,34 +206,21 @@ class TestCheck:
 
     def test_a_bailed_child_stays_todo(self, tmp_path: Path, repo: Path) -> None:
         self._commit(repo, "one", f"{TEAM}-11")
-        self._commit(repo, "WIP — bailed: stuck on the schema", change=True)
+        self._commit(repo, "WIP — bailed: stuck on the schema")
         result = self._check(tmp_path, repo)
         assert result.returncode == 1
         assert f"{TEAM}-12 todo" in result.stdout
 
-    def test_ungated_wip_work_after_the_last_child_fails(self, tmp_path: Path, repo: Path) -> None:
-        for n in (11, 12, 13):
-            self._commit(repo, "x", f"{TEAM}-{n}")
+    @pytest.mark.parametrize("gated_after", [False, True], ids=["at-the-tip", "before-a-child"])
+    def test_a_wip_commit_that_changed_files_fails(self, tmp_path: Path, repo: Path, gated_after: bool) -> None:
+        self._commit(repo, "one", f"{TEAM}-11")
         self._commit(repo, "WIP — bailed: half a fix", change=True)
+        if gated_after:
+            self._commit(repo, "two", f"{TEAM}-12")
+            self._commit(repo, "three", f"{TEAM}-13")
         result = self._check(tmp_path, repo)
         assert result.returncode == 1
-        assert result.stdout.splitlines() == [f"{TEAM}-11 done", f"{TEAM}-12 done", f"{TEAM}-13 done"]
-        assert "changed files and no gated child commit follows it" in result.stderr
-
-    def test_a_merge_after_ungated_wip_work_is_not_a_gated_commit(self, tmp_path: Path, repo: Path) -> None:
-        """A resume merges the default branch in first; that merge must not clear the WIP work."""
-        for n in (11, 12, 13):
-            self._commit(repo, "x", f"{TEAM}-{n}")
-        self._commit(repo, "WIP — bailed: half a fix", change=True)
-        _git(repo, "push", "-q", "origin", f"agent/{PARENT}")
-        _git(repo, "checkout", "-q", "main")
-        self._commit(repo, "main moved")
-        _git(repo, "push", "-q", "origin", "main")
-        _git(repo, "checkout", "-q", f"agent/{PARENT}")
-        _git(repo, "-c", "user.email=a@b", "-c", "user.name=a", "merge", "-q", "--no-edit", "main")
-        result = self._check(tmp_path, repo)
-        assert result.returncode == 1
-        assert "changed files and no gated child commit follows it" in result.stderr
+        assert "changed files; an epic bail commits none" in result.stderr
 
     def test_a_wip_line_in_a_child_commit_body_is_not_a_wip_commit(self, tmp_path: Path, repo: Path) -> None:
         for n in (11, 12):
@@ -253,7 +240,7 @@ class TestCheck:
 
     def test_a_resumed_epic_is_complete_once_the_bailed_child_is_rebuilt(self, tmp_path: Path, repo: Path) -> None:
         self._commit(repo, "one", f"{TEAM}-11")
-        self._commit(repo, "WIP — bailed: stuck", change=True)
+        self._commit(repo, "WIP — bailed: stuck")
         self._commit(repo, "two", f"{TEAM}-12")
         self._commit(repo, "three", f"{TEAM}-13")
         result = self._check(tmp_path, repo)

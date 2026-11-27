@@ -21,9 +21,8 @@
 # trailer. Each child's commit must also come after its blockers' commits, or the check fails: a
 # child committed first had its gates run without its blocker's code. The trailer records that the child's commit gates passed.
 #
-# A WIP commit marks where a run stopped. One that changed files holds ungated work, so a finished
-# epic has a gated child commit after it; an empty one holds nothing. That order is all this
-# checks: the resume reverts a dirty WIP commit (epic.md) so no gated commit takes its code unread.
+# A WIP commit marks where a run stopped, and holds nothing: an epic bail discards its ungated
+# work first, so a WIP commit that changed files breaks the rules.
 set -uo pipefail
 
 MAX_CHILDREN=4
@@ -118,13 +117,12 @@ verdict=$(jq -Rs --argjson plan "$plan" --arg wip "$WIP" --args '
   [ split("\u001e")[] | ltrimstr("\n") | select(. != "") | split("\u001f")
     | {wip: (.[0] | startswith($wip)), tickets: [(.[1] // "") | split(" ")[] | select(. != "")], sha: .[2]} ]
   | to_entries as $c
-  | ([$c[] | select((.value.wip | not) and .value.tickets != []) | .key] | max // -1) as $last
   | (reduce ($c[] | select(.value.wip | not) | {i: .key, t: .value.tickets[]}) as $e ({}; .[$e.t] //= $e.i)) as $at
   | { status: [$plan.order[] | {id: ., done: ($at[.] != null)}],
       errors: (
         [$c[] | .value.tickets[] | select(IN($plan.order[]) | not) | "a Ticket trailer names \(.), which is not an open child of the epic"]
-        + [$c[] | select(.key > $last and (.value.sha | IN($ARGS.positional[])))
-            | "WIP commit \(.value.sha[0:7]) changed files and no gated child commit follows it"]
+        + [$c[] | select(.value.sha | IN($ARGS.positional[]))
+            | "WIP commit \(.value.sha[0:7]) changed files; an epic bail commits none"]
         + [$plan.order[] as $k | select($at[$k] != null) | $plan.blockers[$k][]
             | select($at[.] == null or $at[.] > $at[$k]) | "\($k) is committed before its blocker \(.)"]) }' \
   ${dirty[@]+"${dirty[@]}"} <<<"$log")
