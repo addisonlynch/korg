@@ -51,8 +51,8 @@ resp=$(curl -sS --fail --max-time 20 -X POST https://api.linear.app/graphql \
 children=$(jq -ce '.data.issue.children.nodes | select(. != null)' <<<"$resp") \
   || { echo "agent-epic: could not read $id: $(jq -c '.errors // "empty response"' <<<"$resp")" >&2; exit 2; }
 
-# {order, blockers} or {errors}. A blocking relation reads as `issue` blocks `relatedIssue`, so a
-# child's blockers are its inverse relations of type `blocks`.
+# {order, all, blockers}, {errors} or {none}. A blocking relation reads as `issue` blocks
+# `relatedIssue`, so a child's blockers are its inverse relations of type `blocks`.
 plan=$(jq -c --argjson max "$MAX_CHILDREN" '
   def refusal: {"agent-ready": "is queued on its own; in epic mode only the parent carries agent-ready",
                 "spike": "is a spike, which has no code for the epic to build",
