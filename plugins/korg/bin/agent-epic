@@ -18,8 +18,8 @@
 # Ties in the order go to the lower ticket number.
 #
 # A child is done when a commit other than a `WIP — bailed` one carries its `Ticket: <TEAM>-N`
-# trailer, later than its blockers' commits: a child committed first had its gates run without
-# its blocker's code. The trailer records that the child's commit gates passed.
+# trailer. Each child's commit must also come after its blockers' commits, or the check fails: a
+# child committed first had its gates run without its blocker's code. The trailer records that the child's commit gates passed.
 #
 # A WIP commit marks where a run stopped. One that changed files holds ungated work, so a finished
 # epic has a gated child commit after it; an empty one holds nothing. That order is all this
@@ -62,7 +62,7 @@ plan=$(jq -c --argjson max "$MAX_CHILDREN" '
   | ($open | map(.identifier)) as $ids
   | ($open | map({id: .identifier, num: .number,
       labels: [.labels.nodes[].name | ascii_downcase],
-      criteria: ((.description // "") | test("(^|\\n)[ \\t]*(#+[ \\t]*|\\*\\*)(acceptance criteria|done when)"; "i")),
+      criteria: ((.description // "") | test("(^|\\n)[ \\t]*(#+[ \\t]*|\\*\\*)?(acceptance criteria|done when)"; "i")),
       blockers: [.inverseRelations.nodes[] | select(.type == "blocks") | .issue]})) as $kids
   | [ (if ($kids | length) > $max then "\($kids | length) open children; epic mode builds at most \($max)" else empty end),
       ($kids[] | . as $k
@@ -127,7 +127,7 @@ verdict=$(jq -Rs --argjson plan "$plan" --arg wip "$WIP" --args '
             | "WIP commit \(.value.sha[0:7]) changed files and no gated child commit follows it"]
         + [$plan.order[] as $k | select($at[$k] != null) | $plan.blockers[$k][]
             | select($at[.] == null or $at[.] > $at[$k]) | "\($k) is committed before its blocker \(.)"]) }' \
-  "${dirty[@]}" <<<"$log")
+  ${dirty[@]+"${dirty[@]}"} <<<"$log")
 
 jq -r '.status[] | "\(.id) \(if .done then "done" else "todo" end)"' <<<"$verdict"
 jq -r '.errors[] | "agent-epic: \(.)"' <<<"$verdict" >&2

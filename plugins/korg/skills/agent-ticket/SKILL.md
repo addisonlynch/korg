@@ -211,7 +211,7 @@ One stateless fix round, triggered by a human `@claude` or a red `agent-review` 
 
 - Never push to the default branch, merge, `git push --force`, or commit with `--no-verify`.
 - One ticket per run, or one parent's children through the epic route.
-- During implement, push only through `/korg:open-pr --auto`; the one exception is the
-  `--ci-implement` bail's `WIP — bailed` commit.
+- During implement, push only through `/korg:open-pr --auto`; the exceptions are the
+  `--ci-implement` bail's `WIP — bailed` commit and, in epic mode, each child's `/korg:commit`.
 - A failure before Step 2 accepts the ticket (setup, auth, a transient environment) exits
   non-zero without touching Linear, so a re-dispatch can retry.

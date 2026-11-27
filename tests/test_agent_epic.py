@@ -116,8 +116,13 @@ class TestOrder:
         assert result.stdout == ""
         assert reason in result.stderr
 
-    def test_done_when_counts_as_criteria(self, tmp_path: Path) -> None:
-        result = _run(tmp_path, "order", [child(11, description="**Done when**\n- x\n")])
+    @pytest.mark.parametrize(
+        "description",
+        ["**Done when**\n- x\n", "Acceptance criteria:\n- x\n"],
+        ids=["bold-done-when", "plain-line"],
+    )
+    def test_other_criteria_headings_count(self, tmp_path: Path, description: str) -> None:
+        result = _run(tmp_path, "order", [child(11, description=description)])
         assert result.returncode == 0, result.stderr
 
     @pytest.mark.parametrize(
@@ -132,6 +137,16 @@ class TestOrder:
 
     def test_a_linear_failure_is_a_read_error_not_a_refusal(self, tmp_path: Path) -> None:
         assert _run(tmp_path, "order", CHAIN, curl_exit=22).returncode == 2
+
+    @pytest.mark.parametrize(
+        "body",
+        [{"errors": [{"message": "Entity not found"}]}, {"data": {"issue": None}}],
+        ids=["graphql-errors", "no-such-issue"],
+    )
+    def test_an_unreadable_parent_is_a_read_error_not_a_single_ticket(self, tmp_path: Path, body: dict) -> None:
+        stubs = stub_dir(tmp_path, {"curl": CURL_STUB, "korg-config": KORG_CONFIG_STUB})
+        result = run("agent-epic", ["order", PARENT], stubs, {"LINEAR_API_KEY": "k", "STUB_CURL_JSON": json.dumps(body)})
+        assert result.returncode == 2
 
     def test_a_child_linear_returns_malformed_is_a_read_error(self, tmp_path: Path) -> None:
         malformed = {**child(11), "labels": None}

@@ -39,9 +39,10 @@ Re-queueing the parent resumes from the next child that is not done.
 Take Step 2's **Branch** section as written, with `<P>`'s number: `BR=agent/<P>`.
 
 With `ON_ORIGIN` (a prior bail's push), run `agent-epic check <P>`. Each child it prints `done` is
-skipped. Revert each `WIP — bailed` commit after the last `Ticket:` commit that changed files
+skipped. Revert each `WIP — bailed` commit after the branch's last other commit that changed files
 (`git diff --quiet <sha>^ <sha>` exits 1), newest first, with `git revert --no-edit <sha>`: its
-work never passed the gates, so the child it belonged to is built again from the gated tree. Before building the first `todo` child, run `commands.test` on the merged tree: a red
+work never passed the gates, so the child it belonged to is built again from the gated tree.
+An earlier resume's revert is such an other commit, so a WIP commit it undid is not reverted twice. Before building the first `todo` child, run `commands.test` on the merged tree: a red
 run is an epic bail, because a done child is only trusted while the tests above it pass.
 
 ## 3. Each child, in order
