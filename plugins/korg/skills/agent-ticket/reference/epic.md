@@ -61,7 +61,10 @@ For each `todo` child `<C>` in `ORDER`:
    built as well as this one. A gate still red after two fix attempts is an epic bail.
 4. **Confirm.** `agent-epic check <P>` must now print `<C> done`. Otherwise, epic bail.
 
-Keep each subagent's notes, headed by its child's id, for Step 5.
+Keep each subagent's notes, headed by its child's id, for Step 5. End each child's notes with a
+`Gates:` line naming every `/korg:commit` gate and whether it ran for that child's commit, with
+the reason for any skip (`test-review: skipped, no test file changed`). The review reads it as
+the child's gate provenance.
 
 ## 4. The whole epic
 
