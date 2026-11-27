@@ -19,8 +19,10 @@
 #
 # A child is done when a commit other than a `WIP — bailed` one carries its `Ticket: <TEAM>-N`
 # trailer, later than its blockers' commits: a child committed first had its gates run without
-# its blocker's code. A WIP commit marks the child that stopped, so resume rebuilds that child, and
-# a finished epic's tip is never one. The trailer records that the child's commit gates passed.
+# its blocker's code. The trailer records that the child's commit gates passed.
+#
+# A WIP commit marks where a run stopped. One that changed files holds ungated work, so a finished
+# epic has a gated child commit after it; an empty one holds nothing.
 set -uo pipefail
 
 MAX_CHILDREN=4
@@ -99,21 +101,33 @@ git fetch -q origin "+refs/heads/$default:refs/remotes/origin/$default" \
   "+refs/heads/$branch:refs/remotes/origin/$branch" \
   || { echo "agent-epic: could not fetch $default and $branch from origin" >&2; exit 2; }
 # Records end in \x1e, fields split on \x1f.
-log=$(git log --reverse --format="%s%x1f%(trailers:key=Ticket,valueonly,separator=%x20)%x1e" \
+log=$(git log --reverse --format="%s%x1f%(trailers:key=Ticket,valueonly,separator=%x20)%x1f%H%x1e" \
   "origin/$default..origin/$branch") || { echo "agent-epic: could not read $branch" >&2; exit 2; }
-tip=$(git log -1 --format=%s "origin/$branch") || { echo "agent-epic: could not read $branch" >&2; exit 2; }
+dirty=()
+while read -r sha; do
+  git diff --quiet "$sha^" "$sha"
+  case $? in
+    0) ;;
+    1) dirty+=("$sha") ;;
+    *) echo "agent-epic: could not read $sha" >&2; exit 2 ;;
+  esac
+done < <(jq -Rr --arg wip "$WIP" 'split("\u001e")[] | ltrimstr("\n") | split("\u001f")
+  | select(.[0] // "" | startswith($wip)) | .[2]' <<<"$log")
 
-verdict=$(jq -Rs --argjson plan "$plan" --arg wip "$WIP" --arg tip "$tip" '
+verdict=$(jq -Rs --argjson plan "$plan" --arg wip "$WIP" --args '
   [ split("\u001e")[] | ltrimstr("\n") | select(. != "") | split("\u001f")
-    | {wip: (.[0] | startswith($wip)), tickets: [(.[1] // "") | split(" ")[] | select(. != "")]} ]
+    | {wip: (.[0] | startswith($wip)), tickets: [(.[1] // "") | split(" ")[] | select(. != "")], sha: .[2]} ]
   | to_entries as $c
+  | ([$c[] | select((.value.wip | not) and .value.tickets != []) | .key] | max // -1) as $last
   | (reduce ($c[] | select(.value.wip | not) | {i: .key, t: .value.tickets[]}) as $e ({}; .[$e.t] //= $e.i)) as $at
   | { status: [$plan.order[] | {id: ., done: ($at[.] != null)}],
       errors: (
         [$c[] | .value.tickets[] | select(IN($plan.order[]) | not) | "a Ticket trailer names \(.), which is not an open child of the epic"]
-        + (if ($tip | startswith($wip)) then ["the branch tip is a WIP bail commit"] else [] end)
+        + [$c[] | select(.key > $last and (.value.sha | IN($ARGS.positional[])))
+            | "WIP commit \(.value.sha[0:7]) changed files and no gated child commit follows it"]
         + [$plan.order[] as $k | select($at[$k] != null) | $plan.blockers[$k][]
-            | select($at[.] == null or $at[.] > $at[$k]) | "\($k) is committed before its blocker \(.)"]) }' <<<"$log")
+            | select($at[.] == null or $at[.] > $at[$k]) | "\($k) is committed before its blocker \(.)"]) }' \
+  "${dirty[@]}" <<<"$log")
 
 jq -r '.status[] | "\(.id) \(if .done then "done" else "todo" end)"' <<<"$verdict"
 jq -r '.errors[] | "agent-epic: \(.)"' <<<"$verdict" >&2

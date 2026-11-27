@@ -10,7 +10,10 @@ Anything this file does not cover is an **epic bail**, not something to work aro
 
 ## Epic bail
 
-1. Commit and push whatever is on the branch, with no `Ticket:` trailer:
+1. When every child is already done (`agent-epic check <P>` lists none as `todo`), first discard
+   what is uncommitted (`git checkout -- . && git clean -fd`): it is a parent-acceptance fix
+   that never passed the gates, and a resume finds that gap again. Then commit and push
+   whatever is on the branch, with no `Ticket:` trailer:
    `git add -A && git commit --allow-empty -m "WIP — bailed: <child>: <reason>" && git push origin "$BR"`.
    Locally, leave the worktree as it is instead.
 2. Bail on the parent per Step 2's Linear rules: a comment naming the child, what stopped it, and
@@ -60,10 +63,14 @@ Keep each subagent's notes, headed by its child's id, for Step 5.
 
 1. `agent-epic check <P>` exits 0, or it is an epic bail naming what it printed.
 2. **Parent acceptance.** Spawn one fresh foreground subagent with the parent's description,
-   every child's acceptance criteria and `git diff origin/<default branch>...HEAD`. Ask one
-   question: does the change as a whole do what the parent sets out to do, and what is missing
-   or contradicted? A gap is an epic bail that names it. The subagent did not write the code, so
-   it does not grade its own work.
+   every child's full text and `git diff origin/<default branch>...HEAD`. Ask one question:
+   does the change as a whole do what the parent sets out to do, and what is missing or
+   contradicted? The subagent did not write the code, so it does not grade its own work.
+   - A gap that a child's text already asks for is that child's unfinished work: send it back to
+     a fresh subagent for that child, commit through the gates with the same `--ticket`, then
+     repeat step 4.1 and ask the question again. One such round per run, covering every gap of
+     this kind the answer names; a gap left after it is an epic bail.
+   - A gap no child asks for, or one that needs a decision, is an epic bail that names it.
 
 ## 5. Open the PR
 

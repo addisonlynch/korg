@@ -147,7 +147,11 @@ class TestCheck:
         return repo
 
     @staticmethod
-    def _commit(repo: Path, subject: str, *tickets: str) -> None:
+    def _commit(repo: Path, subject: str, *tickets: str, change: bool = False) -> None:
+        if change:
+            with (repo / "work.txt").open("a") as f:
+                f.write(subject + "\n")
+            _git(repo, "add", "work.txt")
         message = subject + ("\n\n" + "\n".join(f"Ticket: {t}" for t in tickets) if tickets else "")
         _git(repo, "-c", "user.email=a@b", "-c", "user.name=a", "commit", "-q", "--allow-empty", "-m", message)
 
@@ -179,17 +183,56 @@ class TestCheck:
         assert result.returncode == 1
         assert f"{TEAM}-13 todo" in result.stdout
 
-    def test_a_bailed_child_stays_todo_and_a_wip_tip_fails(self, tmp_path: Path, repo: Path) -> None:
+    def test_a_bailed_child_stays_todo(self, tmp_path: Path, repo: Path) -> None:
         self._commit(repo, "one", f"{TEAM}-11")
-        self._commit(repo, "WIP — bailed: stuck on the schema")
+        self._commit(repo, "WIP — bailed: stuck on the schema", change=True)
         result = self._check(tmp_path, repo)
         assert result.returncode == 1
         assert f"{TEAM}-12 todo" in result.stdout
-        assert "tip is a WIP bail" in result.stderr
+
+    def test_ungated_wip_work_after_the_last_child_fails(self, tmp_path: Path, repo: Path) -> None:
+        for n in (11, 12, 13):
+            self._commit(repo, "x", f"{TEAM}-{n}")
+        self._commit(repo, "WIP — bailed: half a fix", change=True)
+        result = self._check(tmp_path, repo)
+        assert result.returncode == 1
+        assert result.stdout.splitlines() == [f"{TEAM}-11 done", f"{TEAM}-12 done", f"{TEAM}-13 done"]
+        assert "changed files and no gated child commit follows it" in result.stderr
+
+    def test_a_merge_after_ungated_wip_work_is_not_a_gated_commit(self, tmp_path: Path, repo: Path) -> None:
+        """A resume merges the default branch in first; that merge must not clear the WIP work."""
+        for n in (11, 12, 13):
+            self._commit(repo, "x", f"{TEAM}-{n}")
+        self._commit(repo, "WIP — bailed: half a fix", change=True)
+        _git(repo, "push", "-q", "origin", f"agent/{PARENT}")
+        _git(repo, "checkout", "-q", "main")
+        self._commit(repo, "main moved")
+        _git(repo, "push", "-q", "origin", "main")
+        _git(repo, "checkout", "-q", f"agent/{PARENT}")
+        _git(repo, "-c", "user.email=a@b", "-c", "user.name=a", "merge", "-q", "--no-edit", "main")
+        result = self._check(tmp_path, repo)
+        assert result.returncode == 1
+        assert "changed files and no gated child commit follows it" in result.stderr
+
+    def test_a_wip_line_in_a_child_commit_body_is_not_a_wip_commit(self, tmp_path: Path, repo: Path) -> None:
+        for n in (11, 12):
+            self._commit(repo, "x", f"{TEAM}-{n}")
+        self._commit(repo, f"three\n\nWIP — bailed: an earlier attempt, now finished", f"{TEAM}-13", change=True)
+        result = self._check(tmp_path, repo)
+        assert result.returncode == 0, result.stderr
+
+    def test_an_empty_bail_after_every_child_does_not_block_a_resume(self, tmp_path: Path, repo: Path) -> None:
+        """A bail at parent acceptance has a clean tree; with every child done, the resumed run
+        commits nothing new, so this empty WIP commit stays the tip and must not block the PR."""
+        for n in (11, 12, 13):
+            self._commit(repo, "x", f"{TEAM}-{n}")
+        self._commit(repo, "WIP — bailed: parent acceptance gap")
+        result = self._check(tmp_path, repo)
+        assert result.returncode == 0, result.stderr
 
     def test_a_resumed_epic_is_complete_once_the_bailed_child_is_rebuilt(self, tmp_path: Path, repo: Path) -> None:
         self._commit(repo, "one", f"{TEAM}-11")
-        self._commit(repo, "WIP — bailed: stuck")
+        self._commit(repo, "WIP — bailed: stuck", change=True)
         self._commit(repo, "two", f"{TEAM}-12")
         self._commit(repo, "three", f"{TEAM}-13")
         result = self._check(tmp_path, repo)
