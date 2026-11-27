@@ -11,7 +11,8 @@ run that ends on "kicked off…" or "waiting for…" has none, and the outcome c
 ## `--ci-implement`
 
 You declare no outcome: the job's `agent-run-outcome` step classifies the run from evidence. A new
-open PR is success, and so is a ticket left `Done` (spike) or `Needs Human` (bail) with no PR.
+open PR is success (for a parent ticket, only when `agent-epic check` finds every child on the
+pushed branch), and so is a ticket left `Done` (spike) or `Needs Human` (bail) with no PR.
 Anything else reds the run. Nothing checks that `needs-review` landed, so Step 4's check is the
 only one. The job has already installed dependencies.
 

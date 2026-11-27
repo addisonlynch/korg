@@ -54,18 +54,26 @@ it **delivers** end to end. Ask whether the granularity is right, whether each b
 genuinely gates its ticket, and whether any ticket should merge or split. Iterate until the user
 approves. Create nothing before that.
 
+When the breakdown is two to four closely related tickets under one parent, ask whether to **run
+it as one epic**: one agent run builds every ticket in blocking order and opens a single PR,
+which the user reviews and merges once. Without a parent issue from Step 1, an epic needs one:
+create it first, its description the objective the tickets add up to.
+
 ## Step 5: Publish
 
 Create the tickets on team `linear.team` in dependency order, blockers first, so each one's
 edges can point at real identifiers:
 
-- **parent**: the parent issue from Step 1, when there is one
+- **parent**: the parent issue from Step 1 or, for an epic, the parent created here, when there is one
 - **blocked by**: Linear's native blocking relation to each blocker
 - `title`: concise, max 60 chars
 - `labels` per `planning.label_taxonomy`: the area labels for **that ticket**, a `model:*` label
   per `/korg:roadmap`'s model routing, and `agent-ready` **only on a ticket with no blockers**,
   not `model:fable`, that the hazards file does not forbid. The runner ignores blocking links,
-  so a blocked ticket queued now could run before its blockers land.
+  so a blocked ticket queued now could run before its blockers land. **As one epic**: no
+  `agent-ready` on any child. Once every child exists, run `agent-epic order <parent>`; when it
+  exits 0, put `agent-ready` on the parent only, and otherwise show the user its refusal and
+  queue nothing.
 - `description`:
 
 ```markdown
@@ -84,4 +92,5 @@ inline the decision-carrying part and say it came from a prototype.
 ## Step 6: Confirm
 
 List every ticket as a hyperlink, `https://linear.app/<linear.workspace>/issue/<ID>/`, in
-dependency order, marking which are queued now and what each blocked one waits on.
+dependency order, marking which are queued now and what each blocked one waits on. For an epic,
+say the parent is queued and list the children in the order `agent-epic order` printed.

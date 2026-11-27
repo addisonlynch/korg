@@ -20,10 +20,21 @@ pr=$(gh pr list --head "$branch" --state open --json number,labels \
   || { echo "agent-stop-check: gh pr list failed; not checking" >&2; exit 0; }
 
 if [ -z "$pr" ]; then
-  reason="This implement run is ending with no open PR and no \`WIP — bailed\` commit on $branch. Finish Step 4 (/korg:open-pr --auto), or take the Step 3 bail (commit and push the WIP, then the Linear comment and Needs Human), before stopping."
+  reason="This implement run is ending with no open PR and no \`WIP — bailed\` commit on $branch. Finish Step 4 (/korg:open-pr --auto), or take your route's bail (Step 3's, or for a parent the epic bail in reference/epic.md), before stopping."
 else
   read -r number labelled <<<"$pr"
-  [ "$labelled" = true ] && exit 0
-  reason="PR #$number is open for $branch without the needs-review label, so the review never starts. Add it (gh api --method POST repos/\$GITHUB_REPOSITORY/issues/$number/labels -f 'labels[]=needs-review'), confirm it reads back, then stop."
+  if [ "$labelled" != true ]; then
+    reason="PR #$number is open for $branch without the needs-review label, so the review never starts. Add it (gh api --method POST repos/\$GITHUB_REPOSITORY/issues/$number/labels -f 'labels[]=needs-review'), confirm it reads back, then stop."
+  else
+    # A failed read lets the agent stop, like a gh failure above: the classifier still reds an
+    # incomplete epic.
+    status=$(agent-epic check "${branch#agent/}" 2>&1)
+    case $? in
+      0|3) exit 0 ;;
+      1) ;;
+      *) echo "agent-stop-check: agent-epic could not check $branch; not checking: $status" >&2; exit 0 ;;
+    esac
+    reason="PR #$number is open for $branch, but the epic is not complete:"$'\n'"$status"$'\n'"Build and commit each todo child through /korg:commit --ticket, or take the epic bail, before stopping."
+  fi
 fi
 jq -n --arg r "$reason" '{decision: "block", reason: $r}'

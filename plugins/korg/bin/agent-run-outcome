@@ -8,7 +8,7 @@
 #          PR_BEFORE                   — open PR number for the ticket captured BEFORE the agent
 #                                        ran ("" = none); distinguishes "opened by this run"
 #                                        from "was already open"
-#          LINEAR_API_KEY              — for the spike / bail state reads
+#          LINEAR_API_KEY              — for the epic check and the spike / bail state reads
 #          GITHUB_OUTPUT               — `outcome` and `pr_number` appended, when set
 # Exit:    0 the run reached a recognized exit; 1 anything else — it stopped early, a gh error, or
 #          an unreadable Linear state (never silently read as "no PR": a revoked token is not a
@@ -34,8 +34,15 @@ pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "agent/$t" --state open \
 
 if [ -n "$pr" ] && [ "$pr" != "$PR_BEFORE" ]; then
   emit opened "$pr"
-  echo "PR #$pr open for agent/$t — implement succeeded."
-  exit 0
+  # agent-epic exits 3 for a ticket with no open children, which keeps the one-ticket success.
+  # Every opened run pays this Linear read: an epic PR with no child commits is the case to catch.
+  epic=0
+  agent-epic check "$t" || epic=$?
+  case "$epic" in
+    0|3) echo "PR #$pr open for agent/$t — implement succeeded."; exit 0 ;;
+    1) echo "::error::PR #$pr is open for agent/$t, but the epic is not complete (agent-epic above)."; exit 1 ;;
+    *) echo "::error::PR #$pr is open for agent/$t, but agent-epic could not check whether $t is a complete epic."; exit 1 ;;
+  esac
 fi
 
 if [ -n "$PR_BEFORE" ]; then

@@ -31,9 +31,16 @@ def repo(tmp_path: Path) -> Path:
 
 
 def _run(
-    tmp_path: Path, repo: Path, *, mode: str = "implement", active: bool = False, prs: list[dict] | None = None
+    tmp_path: Path,
+    repo: Path,
+    *,
+    mode: str = "implement",
+    active: bool = False,
+    prs: list[dict] | None = None,
+    epic_exit: int = 3,
 ) -> tuple[list[str], dict | None]:
-    stubs = stub_dir(tmp_path, {"gh": LOOP_GH_STUB})
+    epic_stub = f'#!/usr/bin/env bash\necho "$*" > "$STUB_DIR/epic_argv"\necho "{TEAM}-12 todo"\nexit {epic_exit}\n'
+    stubs = stub_dir(tmp_path, {"gh": LOOP_GH_STUB, "agent-epic": epic_stub})
     env = {"KORG_AGENT_RUN": mode, "STUB_GH_PR_LIST": json.dumps(prs or [])}
     result = run("agent-stop-check", [], stubs, env, cwd=repo, stdin=json.dumps({"stop_hook_active": active}))
     assert result.returncode == 0, result.stderr
@@ -74,3 +81,28 @@ def test_off_an_agent_branch_it_lets_it_stop(tmp_path: Path, repo: Path) -> None
     _git(repo, "checkout", "-q", "main")
     _, decision = _run(tmp_path, repo)
     assert decision is None
+
+
+LABELLED = [{"number": 7, "labels": [{"name": "needs-review"}]}]
+
+
+def test_an_incomplete_epic_pr_blocks_the_stop(tmp_path: Path, repo: Path) -> None:
+    _, decision = _run(tmp_path, repo, prs=LABELLED, epic_exit=1)
+    assert decision is not None and "epic is not complete" in decision["reason"]
+    assert f"{TEAM}-12 todo" in decision["reason"]
+    assert (tmp_path / "stubs" / "epic_argv").read_text().split() == ["check", f"{TEAM}-42"]
+
+
+@pytest.mark.parametrize("epic_exit", [0, 3], ids=["complete-epic", "not-an-epic"])
+def test_a_complete_epic_or_a_plain_ticket_lets_it_stop(tmp_path: Path, repo: Path, epic_exit: int) -> None:
+    _, decision = _run(tmp_path, repo, prs=LABELLED, epic_exit=epic_exit)
+    assert decision is None
+
+
+def test_an_unreadable_epic_lets_it_stop_and_says_so(tmp_path: Path, repo: Path) -> None:
+    stubs = stub_dir(tmp_path, {"gh": LOOP_GH_STUB, "agent-epic": "#!/usr/bin/env bash\necho boom >&2\nexit 2\n"})
+    env = {"KORG_AGENT_RUN": "implement", "STUB_GH_PR_LIST": json.dumps(LABELLED)}
+    result = run("agent-stop-check", [], stubs, env, cwd=repo, stdin=json.dumps({"stop_hook_active": False}))
+    assert result.returncode == 0
+    assert result.stdout.strip() == ""
+    assert "could not check" in result.stderr and "boom" in result.stderr

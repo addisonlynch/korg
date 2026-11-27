@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+# Epic mode's deterministic half: which children a parent ticket's run builds, in what order
+# (`order`), and whether the pushed branch holds every one of them (`check`). Callers trust this
+# instead of the agent's own account.
+#
+# Usage:   agent-epic order <TEAM>-N   the parent's open children, blockers first, one per line
+#          agent-epic check <TEAM>-N   `<ID> done|todo` per child, in order, read from the pushed
+#                                      origin/agent/<TEAM>-N
+# Env:     LINEAR_API_KEY
+# Config:  linear.team
+# Exit:    0 the order printed / every child done
+#          1 refused, with the reasons on stderr / a child not done, or the branch breaks the rules
+#          2 a usage, config, Linear or git read failure
+#          3 not an epic: the ticket has no open children (none, or all completed, canceled or
+#            duplicate), so it runs as one ticket
+#
+# The epic is the parent's open children, at most MAX_CHILDREN; the refusals are the jq below.
+# Ties in the order go to the lower ticket number.
+#
+# A child is done when a commit other than a `WIP — bailed` one carries its `Ticket: <TEAM>-N`
+# trailer. Its commit must be no earlier than its blockers' commits, or the check fails: a child
+# committed first had its gates run without its blocker's code. The trailer records that the child's commit gates passed.
+#
+# A WIP commit marks where a run stopped, and holds nothing: an epic bail discards its ungated
+# work first, so a WIP commit that changed files breaks the rules.
+set -uo pipefail
+
+MAX_CHILDREN=4
+WIP='WIP — bailed'
+
+mode="${1:-}"
+t="${2:-}"
+if [[ ! "$mode" =~ ^(order|check)$ ]] || [ -z "$t" ]; then
+  echo "usage: agent-epic order|check <TEAM>-N" >&2
+  exit 2
+fi
+[ -n "${LINEAR_API_KEY:-}" ] || { echo "agent-epic: LINEAR_API_KEY is required" >&2; exit 2; }
+team=$(korg-config linear.team)
+[ -n "$team" ] || { echo "agent-epic: linear.team is not set in .korg.yml" >&2; exit 2; }
+id="$team-${t##*-}"
+
+# shellcheck disable=SC2016  # $id is a GraphQL variable, not a shell expansion
+query='query($id: String!) { issue(id: $id) { children(first: 50) { nodes {
+  identifier number description state { type } labels { nodes { name } }
+  inverseRelations(first: 50) { nodes { type issue { identifier state { type } } } }
+} } } }'
+resp=$(curl -sS --fail --max-time 20 -X POST https://api.linear.app/graphql \
+  -H "Authorization: $LINEAR_API_KEY" -H "Content-Type: application/json" \
+  -d "$(jq -nc --arg q "$query" --arg id "$id" '{query: $q, variables: {id: $id}}')") \
+  || { echo "agent-epic: could not read $id from Linear" >&2; exit 2; }
+children=$(jq -ce '.data.issue.children.nodes | select(. != null)' <<<"$resp") \
+  || { echo "agent-epic: could not read $id: $(jq -c '.errors // "empty response"' <<<"$resp")" >&2; exit 2; }
+
+# {order, all, blockers}, {errors} or {none}. A blocking relation reads as `issue` blocks
+# `relatedIssue`, so a child's blockers are its inverse relations of type `blocks`.
+plan=$(jq -c --argjson max "$MAX_CHILDREN" '
+  def refusal: {"agent-ready": "is queued on its own; in epic mode only the parent carries agent-ready",
+                "spike": "is a spike, which has no code for the epic to build",
+                "model:fable": "is model:fable, which never runs unattended"};
+  map(.identifier) as $all
+  | [ .[] | select(.state.type | IN("completed", "canceled", "duplicate") | not) ] as $open
+  | ($open | map(.identifier)) as $ids
+  | ($open | map({id: .identifier, num: .number,
+      labels: [.labels.nodes[].name | ascii_downcase],
+      criteria: ((.description // "") | test("(^|\\n)[ \\t]*(#+[ \\t]*|\\*\\*)?(acceptance criteria|done when)"; "i")),
+      blockers: [.inverseRelations.nodes[] | select(.type == "blocks") | .issue]})) as $kids
+  | [ (if ($kids | length) > $max then "\($kids | length) open children; epic mode builds at most \($max)" else empty end),
+      ($kids[] | . as $k
+        | (if .criteria then empty else "\(.id) has no Acceptance criteria or Done when section" end),
+          (.labels[] | select(refusal[.] != null) | "\($k.id) \(refusal[.])"),
+          (.blockers[] | select((.identifier | IN($ids[])) | not) | select(.state.type != "completed")
+            | "\($k.id) is blocked by \(.identifier), which is outside the epic and not completed"))
+    ] as $errors
+  | if $kids == [] then {none: true} elif $errors != [] then {errors: $errors} else
+      ($kids | map({id, num, blockers: [.blockers[].identifier | select(IN($ids[]))]})) as $g
+      | reduce range($g | length) as $_ ({out: [], left: $g};
+          . as $s
+          | ([$s.left[] | select((.blockers - $s.out) == [])] | sort_by(.num) | first) as $n
+          | if $n == null then . else {out: ($s.out + [$n.id]), left: [$s.left[] | select(.id != $n.id)]} end)
+      | if .left != [] then {errors: ["blocked-by cycle among \(.left | map(.id) | join(", "))"]}
+        else {order: .out, all: $all, blockers: ($g | map({key: .id, value: .blockers}) | from_entries)} end
+    end' <<<"$children") || { echo "agent-epic: could not plan $id's children" >&2; exit 2; }
+
+if jq -e 'has("none")' <<<"$plan" >/dev/null; then
+  echo "agent-epic: $id has no open children, so it is not an epic" >&2
+  exit 3
+fi
+if jq -e 'has("errors")' <<<"$plan" >/dev/null; then
+  jq -r '.errors[] | "agent-epic: \(.)"' <<<"$plan" >&2
+  exit 1
+fi
+if [ "$mode" = order ]; then
+  jq -r '.order[]' <<<"$plan"
+  exit 0
+fi
+
+default=$(git ls-remote --symref origin HEAD | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')
+[ -n "$default" ] || { echo "agent-epic: could not read origin's default branch" >&2; exit 2; }
+branch="agent/$id"
+git fetch -q origin "+refs/heads/$default:refs/remotes/origin/$default" \
+  "+refs/heads/$branch:refs/remotes/origin/$branch" \
+  || { echo "agent-epic: could not fetch $default and $branch from origin" >&2; exit 2; }
+# Records end in \x1e, fields split on \x1f.
+log=$(git log --reverse --format="%s%x1f%(trailers:key=Ticket,valueonly,separator=%x20)%x1f%H%x1e" \
+  "origin/$default..origin/$branch") || { echo "agent-epic: could not read $branch" >&2; exit 2; }
+dirty=()
+while read -r sha; do
+  git diff --quiet "$sha^" "$sha"
+  case $? in
+    0) ;;
+    1) dirty+=("$sha") ;;
+    *) echo "agent-epic: could not read $sha" >&2; exit 2 ;;
+  esac
+done < <(jq -Rr --arg wip "$WIP" 'split("\u001e")[] | ltrimstr("\n") | split("\u001f")
+  | select(.[0] // "" | startswith($wip)) | .[2]' <<<"$log")
+
+verdict=$(jq -Rs --argjson plan "$plan" --arg wip "$WIP" --args '
+  [ split("\u001e")[] | ltrimstr("\n") | select(. != "") | split("\u001f")
+    | {wip: (.[0] | startswith($wip)), tickets: [(.[1] // "") | split(" ")[] | select(. != "")], sha: .[2]} ]
+  | to_entries as $c
+  | (reduce ($c[] | select(.value.wip | not) | {i: .key, t: .value.tickets[]}) as $e ({}; .[$e.t] //= $e.i)) as $at
+  | { status: [$plan.order[] | {id: ., done: ($at[.] != null)}],
+      errors: (
+        [$c[] | .value.tickets[] | select(IN($plan.all[]) | not) | "a Ticket trailer names \(.), which is not a child of the epic"]
+        + [$c[] | select(.value.sha | IN($ARGS.positional[]))
+            | "WIP commit \(.value.sha[0:7]) changed files; an epic bail commits none"]
+        + [$plan.order[] as $k | select($at[$k] != null) | $plan.blockers[$k][]
+            | select($at[.] == null or $at[.] > $at[$k]) | "\($k) is committed before its blocker \(.)"]) }' \
+  ${dirty[@]+"${dirty[@]}"} <<<"$log") || { echo "agent-epic: could not check $branch" >&2; exit 2; }
+
+jq -r '.status[] | "\(.id) \(if .done then "done" else "todo" end)"' <<<"$verdict"
+jq -r '.errors[] | "agent-epic: \(.)"' <<<"$verdict" >&2
+jq -e '.errors == [] and all(.status[]; .done)' <<<"$verdict" >/dev/null

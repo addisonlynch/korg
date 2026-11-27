@@ -11,7 +11,13 @@ The reviewer input contract in `SKILL.md` governs everything here.
    `.claude/rules/`). In CI the MCP is the only permitted path (the review workflow's allowlist
    has no Bash entry for it); on a local run `linear-issue <ID>` works as a fallback when the
    MCP is not connected.
-3. If no ticket is linked, or the fetch fails, continue: note "no ticket context; fitness
+3. **An epic PR** carries a `Ticket: <ID>` trailer on some of its commits (read them with
+   `gh pr view <PR> --json commits`): one per child the agent built. Fetch each child named
+   there the same way. The ticket text every reviewer receives is then the parent's description
+   (the objective) followed by each child's full text, in commit order, and the fitness
+   reviewer's per-criterion pass walks every child's criteria. A child whose fetch fails is
+   named in the summary as unchecked.
+4. If no ticket is linked, or the fetch fails, continue: note "no ticket context; fitness
    check skipped" for the summary, skip the fitness reviewer, and spawn only reviewers 2 and 3,
    without ticket text but with everything else their roster entries name.
 

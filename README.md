@@ -101,7 +101,9 @@ The planning skills talk to Linear the way the project's Linear rule in `.claude
 - an agent runner that takes `agent-ready` tickets (stripping the label), works each on an
   `agent/<ID>` branch in about two hours, and skips a ticket that already has an open PR. It
   ignores blocked-by links, so to-tickets queues only unblocked tickets and groom-backlog queues
-  the rest as their blockers land;
+  the rest as their blockers land. The exception is an epic: `agent-ready` on a parent with up
+  to four open children makes one run build every child in blocked-by order, one gated commit each,
+  and open a single PR, so the chain needs one merge instead of one per ticket;
 - `gh`, for groom-backlog's re-queue check.
 
 The review layer runs in CI as reusable workflows: see [docs/callers.md](docs/callers.md) for

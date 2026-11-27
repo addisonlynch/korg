@@ -17,6 +17,9 @@ unset.
 Parse `$ARGUMENTS`:
 - First non-flag argument = commit message (generated if not provided)
 - `--quick` (`-q`): Gate 1 and Gate 5 only. Ignored in CI.
+- `--ticket <ID>`: adds a `Ticket: <ID>` trailer to the commit, the record epic mode reads to
+  know which child the commit built (see `agent-epic`). Only a commit that passed every gate
+  may carry it: with `--quick` or `--nochecks`, refuse and say why.
 - `--nochecks` (`-nc`): skip every gate and go straight to **Commit and push**. The repo's
   pre-commit hooks still run; if one fails or rewrites files, fix the issue and retry until it
   passes. Use only when the user explicitly asks for a raw commit. Wins over `--quick`. Ignored
@@ -73,14 +76,16 @@ After applying fixes, re-run Gate 1. Do not run tests here.
 
 ## Gate 4: Security (skip if `--quick` outside CI; triggered, not always-on)
 
+Both read new files too: `git add -N .` makes untracked files visible to `git diff HEAD`.
+
 Path triggers:
 ```sh
-git diff --name-only HEAD | grep -E '(auth/|middleware|sql|infra/|terraform/|\.env|requirements.*\.txt|package\.json|pyproject\.toml|Dockerfile)'
+git add -N . && git diff --name-only HEAD | grep -E '(auth/|middleware|sql|infra/|terraform/|\.env|requirements.*\.txt|package\.json|pyproject\.toml|Dockerfile)'
 ```
 
 Content triggers:
 ```sh
-git diff HEAD | grep -E '(eval\(|exec\(|subprocess|dangerouslySetInnerHTML|text\(.*f"|execute\(.*f")'
+git add -N . && git diff HEAD | grep -E '(eval\(|exec\(|subprocess|dangerouslySetInnerHTML|text\(.*f"|execute\(.*f")'
 ```
 
 If either fires, run `/security-review` (a Claude Code built-in). Advisory findings go in a
@@ -118,7 +123,8 @@ failing test, decide its provenance before touching anything:
 1. Without a message in the arguments, generate one from `git diff HEAD`: one concise line,
    imperative mood. Do not ask the user.
 2. Stage and commit. The trailer names no model version: the run model varies per ticket, so a
-   fixed name would mislabel commits.
+   fixed name would mislabel commits. With `--ticket <ID>`, `Ticket: <ID>` goes on the line
+   above `Co-Authored-By`, in the same paragraph, or git does not read it as a trailer.
    ```sh
    git add -A
    git commit -m "<message>
