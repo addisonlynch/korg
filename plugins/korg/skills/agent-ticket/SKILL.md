@@ -1,6 +1,6 @@
 ---
 name: agent-ticket
-description: Work ONE specific Linear ticket - implement it and open a review-ready PR via /korg:open-pr --auto, then stop; or run one review fix round on a PR (--ci-respond). The caller supplies the ticket to implement; this skill does not pick. Use when the user invokes /korg:agent-ticket or asks an agent to work a specific ticket end to end.
+description: Work ONE specific Linear ticket - implement it (or, for a parent ticket, each of its children in order) and open a review-ready PR via /korg:open-pr --auto, then stop; or run one review fix round on a PR (--ci-respond). The caller supplies the ticket to implement; this skill does not pick. Use when the user invokes /korg:agent-ticket or asks an agent to work a specific ticket end to end.
 ---
 
 # Agent Ticket
@@ -38,7 +38,8 @@ number `N`. Without `--ci-respond`, if it is empty, print `agent-ticket requires
 - `--ci-implement`: unattended, on the GitHub Actions job checkout. Steps 1-4.
 - `--ci-respond`: one fix round on a PR (Step 5).
 
-Both CI modes follow [`reference/ci-modes.md`](reference/ci-modes.md) as well.
+Both CI modes follow [`reference/ci-modes.md`](reference/ci-modes.md) as well. A parent ticket
+takes the epic route in Step 2.
 
 ## Queue and Linear writes
 
@@ -77,6 +78,17 @@ finish that PR; retrying a ticket that has one is an interactive decision.
 
 Read the full ticket, `agent.extensions` when it is set, and in `--ci-implement` the
 `planning.hazards` file when it is set.
+
+### Epic route
+
+Run `agent-epic order <TEAM>-N` before anything else in this step:
+
+- **Exit 3** (no children): not an epic. Continue below.
+- **Exit 0**: the ticket is a parent and stdout is its children's build order. Follow
+  [`reference/epic.md`](reference/epic.md) instead of the rest of Steps 2-4.
+- **Exit 1**: bail with a comment quoting its stderr (the parent needs re-planning before an
+  agent can build it), and exit 0.
+- **Exit 2**: a read failed. Exit non-zero, touching nothing.
 
 When `agent.extensions` is set, each of its steps whose condition this ticket and mode meet (a
 label it carries, the mode you run in) is required, even when the change looks too small to need
@@ -198,7 +210,7 @@ One stateless fix round, triggered by a human `@claude` or a red `agent-review` 
 ## Rules
 
 - Never push to the default branch, merge, `git push --force`, or commit with `--no-verify`.
-- One ticket per run.
+- One ticket per run, or one parent's children through the epic route.
 - During implement, push only through `/korg:open-pr --auto`; the one exception is the
   `--ci-implement` bail's `WIP — bailed` commit.
 - A failure before Step 2 accepts the ticket (setup, auth, a transient environment) exits

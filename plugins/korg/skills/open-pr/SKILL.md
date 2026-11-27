@@ -32,7 +32,9 @@ Parse `$ARGUMENTS`:
 Run `/korg:commit` (passing `--quick` if provided). It runs the quality gates, commits, and
 pushes the branch.
 
-If `/korg:commit` stops for any reason, stop here too.
+If `/korg:commit` stops for any reason, stop here too. The one exception is a finished epic: on
+a clean tree, when the branch is `agent/<team>-N` and `agent-epic check <team>-N` exits 0, every
+child was committed through the gates already, so skip to Phase 2.
 
 ## Phase 2: Draft PR
 

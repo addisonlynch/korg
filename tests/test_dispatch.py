@@ -33,6 +33,7 @@ class TestAgentRunOutcome:
         gh_exit: int = 0,
         linear_state: str | None = None,
         linear_exit: int = 0,
+        epic_exit: int = 3,
     ) -> tuple[Path, object, dict[str, str]]:
         state_json = json.dumps({"state": {"name": linear_state}} if linear_state else {})
         stubs = stub_dir(
@@ -45,6 +46,7 @@ class TestAgentRunOutcome:
                     f"[ {linear_exit} -eq 0 ] || exit {linear_exit}\n"
                     f"printf '%s' '{state_json}'\n"
                 ),
+                "agent-epic": f"#!/usr/bin/env bash\nexit {epic_exit}\n",
             },
         )
         out = tmp_path / "github_output"
@@ -67,6 +69,19 @@ class TestAgentRunOutcome:
         argv = (stubs / "gh_argv").read_text().splitlines()
         for expected in ("--repo", "owner/repo", "--head", f"agent/{TEAM}-42", "--state", "open"):
             assert expected in argv
+
+    def test_a_complete_epic_is_opened(self, tmp_path: Path) -> None:
+        _, result, outs = self._run(tmp_path, pr_number="123", epic_exit=0)
+        assert result.returncode == 0, result.stdout
+        assert outs == {"outcome": "opened", "pr_number": "123"}
+
+    @pytest.mark.parametrize(("epic_exit", "says"), [(1, "epic is not complete"), (2, "could not check")])
+    def test_an_epic_pr_that_is_not_proven_complete_fails(self, tmp_path: Path, epic_exit: int, says: str) -> None:
+        """The PR exists, so the cost step still sees it, but the run goes red."""
+        _, result, outs = self._run(tmp_path, pr_number="123", epic_exit=epic_exit)
+        assert result.returncode == 1
+        assert says in result.stdout
+        assert outs == {"outcome": "opened", "pr_number": "123"}
 
     def test_new_pr_after_the_baseline_was_closed_is_opened(self, tmp_path: Path) -> None:
         """The baseline PR has closed since and this run opened another: a legitimate open."""
