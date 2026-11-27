@@ -18,8 +18,8 @@
 # Ties in the order go to the lower ticket number.
 #
 # A child is done when a commit other than a `WIP — bailed` one carries its `Ticket: <TEAM>-N`
-# trailer. Each child's commit must also come after its blockers' commits, or the check fails: a
-# child committed first had its gates run without its blocker's code. The trailer records that the child's commit gates passed.
+# trailer. Its commit must be no earlier than its blockers' commits, or the check fails: a child
+# committed first had its gates run without its blocker's code. The trailer records that the child's commit gates passed.
 #
 # A WIP commit marks where a run stopped, and holds nothing: an epic bail discards its ungated
 # work first, so a WIP commit that changed files breaks the rules.
@@ -57,7 +57,8 @@ plan=$(jq -c --argjson max "$MAX_CHILDREN" '
   def refusal: {"agent-ready": "is queued on its own; in epic mode only the parent carries agent-ready",
                 "spike": "is a spike, which has no code for the epic to build",
                 "model:fable": "is model:fable, which never runs unattended"};
-  [ .[] | select(.state.type | IN("completed", "canceled", "duplicate") | not) ] as $open
+  map(.identifier) as $all
+  | [ .[] | select(.state.type | IN("completed", "canceled", "duplicate") | not) ] as $open
   | ($open | map(.identifier)) as $ids
   | ($open | map({id: .identifier, num: .number,
       labels: [.labels.nodes[].name | ascii_downcase],
@@ -77,7 +78,7 @@ plan=$(jq -c --argjson max "$MAX_CHILDREN" '
           | ([$s.left[] | select((.blockers - $s.out) == [])] | sort_by(.num) | first) as $n
           | if $n == null then . else {out: ($s.out + [$n.id]), left: [$s.left[] | select(.id != $n.id)]} end)
       | if .left != [] then {errors: ["blocked-by cycle among \(.left | map(.id) | join(", "))"]}
-        else {order: .out, blockers: ($g | map({key: .id, value: .blockers}) | from_entries)} end
+        else {order: .out, all: $all, blockers: ($g | map({key: .id, value: .blockers}) | from_entries)} end
     end' <<<"$children") || { echo "agent-epic: could not plan $id's children" >&2; exit 2; }
 
 if jq -e 'has("none")' <<<"$plan" >/dev/null; then
@@ -120,7 +121,7 @@ verdict=$(jq -Rs --argjson plan "$plan" --arg wip "$WIP" --args '
   | (reduce ($c[] | select(.value.wip | not) | {i: .key, t: .value.tickets[]}) as $e ({}; .[$e.t] //= $e.i)) as $at
   | { status: [$plan.order[] | {id: ., done: ($at[.] != null)}],
       errors: (
-        [$c[] | .value.tickets[] | select(IN($plan.order[]) | not) | "a Ticket trailer names \(.), which is not an open child of the epic"]
+        [$c[] | .value.tickets[] | select(IN($plan.all[]) | not) | "a Ticket trailer names \(.), which is not a child of the epic"]
         + [$c[] | select(.value.sha | IN($ARGS.positional[]))
             | "WIP commit \(.value.sha[0:7]) changed files; an epic bail commits none"]
         + [$plan.order[] as $k | select($at[$k] != null) | $plan.blockers[$k][]

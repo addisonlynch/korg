@@ -270,6 +270,15 @@ class TestCheck:
         assert result.returncode == 1
         assert f"names {TEAM}-50" in result.stderr
 
+    def test_a_committed_child_closed_later_does_not_block_a_resume(self, tmp_path: Path, repo: Path) -> None:
+        self._commit(repo, "x", f"{TEAM}-11")
+        self._commit(repo, "y", f"{TEAM}-12")
+        children = [child(11, state="completed"), child(12, blocked_by=[(11, "completed")])]
+        _git(repo, "push", "-q", "origin", f"agent/{PARENT}")
+        result = _run(tmp_path, "check", children, cwd=repo)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.splitlines() == [f"{TEAM}-12 done"]
+
     def test_a_resume_that_merged_main_in_is_complete(self, tmp_path: Path, repo: Path) -> None:
         """Step 2's resume merges the default branch into the bailed branch; the merge commit and
         main's own commits carry no trailer and must not disturb the check."""
