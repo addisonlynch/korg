@@ -52,7 +52,9 @@ For each `todo` child `<C>` in `ORDER`:
 2. **Check the criteria.** Read `git diff HEAD` against `<C>`'s acceptance criteria. Name, for
    each criterion, the change or test that meets it. A criterion nothing meets goes back to the
    same subagent once; still unmet, it is an epic bail.
-3. **Commit through the gates.** `/korg:commit "<C>: <C's title>" --ticket <C>`. Its scoped test
+3. **Commit through the gates.** `/korg:commit "<C>: <C's title>" --ticket <C>`, invoked anew for
+   each child: never `git commit` a child or write its `Ticket:` trailer yourself, since the
+   trailer is what tells `agent-epic check` that the gates ran. Its scoped test
    run reads the whole branch against the default branch, so it tests what the earlier children
    built as well as this one. A gate still red after two fix attempts is an epic bail.
 4. **Confirm.** `agent-epic check <P>` must now print `<C> done`. Otherwise, epic bail.
