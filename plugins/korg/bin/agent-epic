@@ -126,7 +126,7 @@ verdict=$(jq -Rs --argjson plan "$plan" --arg wip "$WIP" --args '
             | "WIP commit \(.value.sha[0:7]) changed files; an epic bail commits none"]
         + [$plan.order[] as $k | select($at[$k] != null) | $plan.blockers[$k][]
             | select($at[.] == null or $at[.] > $at[$k]) | "\($k) is committed before its blocker \(.)"]) }' \
-  ${dirty[@]+"${dirty[@]}"} <<<"$log")
+  ${dirty[@]+"${dirty[@]}"} <<<"$log") || { echo "agent-epic: could not check $branch" >&2; exit 2; }
 
 jq -r '.status[] | "\(.id) \(if .done then "done" else "todo" end)"' <<<"$verdict"
 jq -r '.errors[] | "agent-epic: \(.)"' <<<"$verdict" >&2

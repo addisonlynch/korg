@@ -81,7 +81,8 @@ Read the full ticket, `agent.extensions` when it is set, and in `--ci-implement`
 
 ### Epic route
 
-Run `agent-epic order <TEAM>-N` before anything else in this step:
+A ticket labelled `spike` skips this and takes the Spike gate below. Otherwise run
+`agent-epic order <TEAM>-N` before anything else in this step:
 
 - **Exit 3** (no children): not an epic. Continue below.
 - **Exit 0**: the ticket is a parent and stdout is its children's build order. Follow
