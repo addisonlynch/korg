@@ -20,7 +20,7 @@ pr=$(gh pr list --head "$branch" --state open --json number,labels \
   || { echo "agent-stop-check: gh pr list failed; not checking" >&2; exit 0; }
 
 if [ -z "$pr" ]; then
-  reason="This implement run is ending with no open PR and no \`WIP — bailed\` commit on $branch. Finish Step 4 (/korg:open-pr --auto), or take the Step 3 bail (commit and push the WIP, then the Linear comment and Needs Human), before stopping."
+  reason="This implement run is ending with no open PR and no \`WIP — bailed\` commit on $branch. Finish Step 4 (/korg:open-pr --auto), or take your route's bail (Step 3's, or for a parent the epic bail in reference/epic.md), before stopping."
 else
   read -r number labelled <<<"$pr"
   if [ "$labelled" != true ]; then
