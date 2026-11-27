@@ -16,7 +16,7 @@ naming the child, and exits 0. Every later bail is this one:
 1. In CI, discard what is uncommitted: it never passed the gates, and the resume builds that
    child again from the gated tree. Then push an empty marker, with no `Ticket:` trailer, so the
    resume finds the branch:
-   `git checkout -- . && git clean -fd && git commit --allow-empty -m "WIP — bailed: <child>: <reason>" && git push origin "$BR"`.
+   `git reset -q --hard && git clean -fd && git commit --allow-empty -m "WIP — bailed: <child>: <reason>" && git push origin "$BR"`.
    Locally, leave the worktree as it is instead.
 2. Bail on the parent per Step 2's Linear rules: a comment naming the child, what stopped it, and
    the children done so far (from `agent-epic check <P>`), then `Needs Human` assigned to the
@@ -51,7 +51,7 @@ For each `todo` child `<C>` in `ORDER`:
    Step 3's implementation rules and evidence, run only the tests it writes or edits, return
    its implementation notes, and never commit, push or write Linear. A subagent that reports it
    could not do the child is an epic bail.
-2. **Check the criteria.** Read `git diff HEAD` against `<C>`'s acceptance criteria. Name, for
+2. **Check the criteria.** Read `git add -N . && git diff HEAD` (new files included) against `<C>`'s acceptance criteria. Name, for
    each criterion, the change or test that meets it. A criterion nothing meets goes back to the
    same subagent once; still unmet, it is an epic bail.
 3. **Commit through the gates.** Invoke the `korg:commit` skill with `"<C>: <C's title>" --ticket <C>`

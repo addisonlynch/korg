@@ -93,7 +93,7 @@ if [ "$mode" = order ]; then
   exit 0
 fi
 
-default=$(git ls-remote --symref origin HEAD | sed -n 's|^ref: refs/heads/\(.*\)\tHEAD$|\1|p')
+default=$(git ls-remote --symref origin HEAD | awk '$1 == "ref:" && $3 == "HEAD" { sub("^refs/heads/", "", $2); print $2 }')
 [ -n "$default" ] || { echo "agent-epic: could not read origin's default branch" >&2; exit 2; }
 branch="agent/$id"
 git fetch -q origin "+refs/heads/$default:refs/remotes/origin/$default" \

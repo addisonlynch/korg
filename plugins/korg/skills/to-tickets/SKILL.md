@@ -64,7 +64,7 @@ create it first, its description the objective the tickets add up to.
 Create the tickets on team `linear.team` in dependency order, blockers first, so each one's
 edges can point at real identifiers:
 
-- **parent**: the parent issue from Step 1, when there is one
+- **parent**: the parent issue from Step 1 or, for an epic, the parent created here, when there is one
 - **blocked by**: Linear's native blocking relation to each blocker
 - `title`: concise, max 60 chars
 - `labels` per `planning.label_taxonomy`: the area labels for **that ticket**, a `model:*` label
