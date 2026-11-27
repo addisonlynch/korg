@@ -76,14 +76,16 @@ After applying fixes, re-run Gate 1. Do not run tests here.
 
 ## Gate 4: Security (skip if `--quick` outside CI; triggered, not always-on)
 
+Both read new files too: `git add -N .` makes untracked files visible to `git diff HEAD`.
+
 Path triggers:
 ```sh
-git diff --name-only HEAD | grep -E '(auth/|middleware|sql|infra/|terraform/|\.env|requirements.*\.txt|package\.json|pyproject\.toml|Dockerfile)'
+git add -N . && git diff --name-only HEAD | grep -E '(auth/|middleware|sql|infra/|terraform/|\.env|requirements.*\.txt|package\.json|pyproject\.toml|Dockerfile)'
 ```
 
 Content triggers:
 ```sh
-git diff HEAD | grep -E '(eval\(|exec\(|subprocess|dangerouslySetInnerHTML|text\(.*f"|execute\(.*f")'
+git add -N . && git diff HEAD | grep -E '(eval\(|exec\(|subprocess|dangerouslySetInnerHTML|text\(.*f"|execute\(.*f")'
 ```
 
 If either fires, run `/security-review` (a Claude Code built-in). Advisory findings go in a
